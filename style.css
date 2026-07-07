@@ -142,3 +142,34 @@
     cursor: pointer;
     text-align: center;
 }
+
+/* Debug output */
+.wo_debug_out {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 7%, transparent);
+    border-radius: 4px;
+    padding: 8px;
+    margin: 6px 0;
+    font-size: 0.82em;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.wo_debug_title {
+    font-weight: 600;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    font-size: 0.9em;
+}
+
+.wo_debug_entry {
+    padding: 5px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+    line-height: 1.5;
+}
+
+.wo_debug_entry code {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
