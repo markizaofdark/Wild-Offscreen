@@ -25,6 +25,7 @@ const DEFAULTS = {
     triggerEvery: 5,       // generate events every N messages
     maxEvents: 7,          // max stored events per NPC
     injectMaxMessages: 0,  // 0 = inject all NPCs; N = only NPCs seen in last N messages
+    selectedLorebook: '',  // name of lorebook to scan
 };
 
 // Event categories with weights (higher = more likely on low rolls)
@@ -71,20 +72,83 @@ function saveNPCs(npcs) {
 // ── Lore scanning ──────────────────────────────────────────
 
 /**
- * Scans active world info / lorebook for before_char entries.
+ * Returns a list of all available lorebook names ST knows about.
+ * Tries multiple locations ST uses across versions.
+ */
+function getAvailableLorebooks() {
+    const names = new Set();
+
+    // ST < 1.12: window.world_info is an object keyed by lorebook name
+    if (window.world_info && typeof window.world_info === 'object') {
+        for (const k of Object.keys(window.world_info)) names.add(k);
+    }
+
+    // ST >= 1.12 exposes a global worldInfoData map
+    if (window.worldInfoData && typeof window.worldInfoData === 'object') {
+        for (const k of Object.keys(window.worldInfoData)) names.add(k);
+    }
+
+    // globalThis.world_names is populated by ST's world info module
+    if (Array.isArray(window.world_names)) {
+        for (const n of window.world_names) names.add(n);
+    }
+
+    // SillyTavern also keeps a loaded_world_info list
+    if (Array.isArray(window.loaded_world_info)) {
+        for (const n of window.loaded_world_info) names.add(n);
+    }
+
+    return [...names].sort();
+}
+
+/**
+ * Extracts entries array from a lorebook data object
+ * regardless of which ST version shaped it.
+ */
+function extractEntries(lorebookData) {
+    if (!lorebookData) return [];
+    if (Array.isArray(lorebookData)) return lorebookData;
+    if (lorebookData.entries) return Object.values(lorebookData.entries);
+    // Some versions wrap in a second level
+    const first = Object.values(lorebookData)[0];
+    if (first && first.entries) return Object.values(first.entries);
+    return [];
+}
+
+/**
+ * Scans a specific lorebook (by name) for before_char entries.
+ * Falls back to scanning all active world info if no name given.
  * Position 0 or "before_char" = NPC entry.
  */
-function scanLorebook() {
-    const ctx = getContext();
+function scanLorebook(lorebookName) {
     const found = [];
 
-    // ST exposes world info in different shapes depending on version
-    const wi = ctx.worldInfo || ctx.world_info || {};
-    const entries = wi.entries
-        ? Object.values(wi.entries)
-        : Array.isArray(wi) ? wi : [];
+    // --- Resolve raw entries ---
+    let rawEntries = [];
 
-    for (const entry of entries) {
+    if (lorebookName) {
+        // Try all known ST storage locations by name
+        const sources = [
+            window.world_info?.[lorebookName],
+            window.worldInfoData?.[lorebookName],
+        ];
+        for (const src of sources) {
+            if (src) {
+                rawEntries = extractEntries(src);
+                if (rawEntries.length) break;
+            }
+        }
+    }
+
+    // Fallback: use context worldInfo (active lorebook attached to chat/char)
+    if (rawEntries.length === 0) {
+        const ctx = getContext();
+        const wi = ctx.worldInfo || ctx.world_info || {};
+        rawEntries = extractEntries(wi);
+    }
+
+    // --- Filter for before_char ---
+    for (const entry of rawEntries) {
         const pos = entry.position ?? entry.extensions?.position ?? entry.insertion_position;
         const isBeforeChar = pos === 0 || pos === 'before_char';
         if (!isBeforeChar) continue;
@@ -451,6 +515,17 @@ function buildUI() {
             <!-- NPC list -->
             <div id="wo_npc_list" class="wo_npc_list"></div>
 
+            <!-- Lorebook selector -->
+            <div class="wo_lorebook_row">
+                <label><small>Lorebook to scan</small></label>
+                <div class="wo_lorebook_select_wrap">
+                    <select id="wo_lorebook_select" class="text_pole wo_lorebook_select">
+                        <option value="">(auto — active lorebook)</option>
+                    </select>
+                    <input type="button" id="wo_lorebook_refresh" class="menu_button wo_lorebook_refresh_btn" title="Refresh lorebook list" value="↻" />
+                </div>
+            </div>
+
             <!-- Actions -->
             <div class="wo_actions">
                 <input type="button" id="wo_scan" class="menu_button" value="⟳ Scan Lorebook" />
@@ -481,6 +556,23 @@ function buildUI() {
     $('#extensions_settings').append(html);
 }
 
+// ── Lorebook selector ──────────────────────────────────────
+
+function populateLorebookSelect(savedValue) {
+    const select = $('#wo_lorebook_select');
+    const books = getAvailableLorebooks();
+    select.empty().append('<option value="">(auto — active lorebook)</option>');
+    for (const name of books) {
+        const opt = $('<option>').val(name).text(name);
+        if (name === savedValue) opt.prop('selected', true);
+        select.append(opt);
+    }
+    // If saved value not in list but non-empty, add it anyway so it isn't lost
+    if (savedValue && !books.includes(savedValue)) {
+        select.append($('<option>').val(savedValue).text(savedValue).prop('selected', true));
+    }
+}
+
 // ── Init ───────────────────────────────────────────────────
 
 jQuery(async () => {
@@ -497,6 +589,7 @@ jQuery(async () => {
     $('#wo_inject_max').val(s.injectMaxMessages);
 
     renderNPCList();
+    populateLorebookSelect(s.selectedLorebook);
 
     // ── Settings handlers ──
 
@@ -531,11 +624,26 @@ jQuery(async () => {
         saveSettingsDebounced();
     });
 
+    // ── Lorebook selector ──
+    $('#wo_lorebook_select').on('change', function () {
+        s.selectedLorebook = this.value;
+        saveSettingsDebounced();
+    });
+
+    $('#wo_lorebook_refresh').on('click', () => {
+        populateLorebookSelect(s.selectedLorebook);
+        toastr.info('Lorebook list refreshed.');
+    });
+
     // ── Scan button ──
     $('#wo_scan').on('click', () => {
-        const scanned = scanLorebook();
+        const bookName = s.selectedLorebook || '';
+        const scanned = scanLorebook(bookName);
         if (scanned.length === 0) {
-            toastr.warning('No before_char entries found in active lorebook.');
+            const hint = bookName
+                ? `No before_char entries found in "${bookName}".`
+                : 'No before_char entries found in active lorebook. Try selecting one manually above.';
+            toastr.warning(hint);
             return;
         }
         const added = registerNPCs(scanned);
