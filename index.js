@@ -1,6 +1,6 @@
 /**
  * Wild Offscreen — SillyTavern Extension
- * Tracks offscreen NPC lives via HuggingFace API.
+ * Tracks offscreen NPC lives: generates events via ST main API (generateRaw).
  */
 
 'use strict';
@@ -25,8 +25,6 @@ const INJECTION_POSITION = 1;
 
 const DEFAULTS = {
     enabled: true,
-    hfToken: '',
-    hfModel: 'mistralai/Mistral-7B-Instruct-v0.3',
     triggerEvery: 5,
     maxEvents: 7,
     injectMaxMessages: 0,
@@ -403,47 +401,33 @@ Output only the two sentences. [/INST]`;
 }
 
 /**
- * Call the main ST API (whatever is currently connected) via generateRaw.
- * Falls back to HuggingFace if main API fails and HF token is set.
+ * Call the main ST API via generateRaw.
+ * Uses whatever API is currently connected in ST (Gemini, Claude, OpenAI, etc.)
  */
 async function callMainAPI(messages) {
     try {
         const ctx = SillyTavern.getContext();
         if (typeof ctx.generateRaw !== 'function') {
-            console.warn('[WildOffscreen] generateRaw not available in this ST version');
+            console.warn('[WildOffscreen] generateRaw not available — ST version too old?');
             return null;
         }
-        // Try object-style first (newer ST), then flat string (older ST)
         let result;
         try {
+            // Newer ST: object style
             result = await ctx.generateRaw({ prompt: messages });
         } catch (e) {
-            console.warn('[WildOffscreen] generateRaw object style failed, trying flat:', e.message);
+            console.warn('[WildOffscreen] generateRaw object style failed, trying flat string:', e.message);
+            // Older ST: flat string
             const flat = messages.map(m => '[' + (m.role || 'system').toUpperCase() + ']\n' + (m.content || '')).join('\n\n');
             result = await ctx.generateRaw(flat, null, false, false);
         }
-        console.log('[WildOffscreen] generateRaw result:', String(result || '').slice(0, 150));
-        return typeof result === 'string' ? result.trim() : null;
+        const text = typeof result === 'string' ? result.trim() : null;
+        console.log('[WildOffscreen] generateRaw ok, length:', text?.length);
+        return text;
     } catch (e) {
-        console.error('[WildOffscreen] generateRaw error:', e);
+        console.error('[WildOffscreen] generateRaw failed:', e.message);
         return null;
     }
-}
-
-async function callHF(prompt) {
-    const s = getSettings();
-    if (!s.hfToken) return null;
-    try {
-        const r = await fetch(`https://api-inference.huggingface.co/models/${s.hfModel}`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${s.hfToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 80, temperature: 0.85, do_sample: true, return_full_text: false } }),
-        });
-        const text = await r.text();
-        if (!r.ok) { console.warn('[WildOffscreen] HF', r.status, text.slice(0, 100)); return null; }
-        const data = JSON.parse(text);
-        return (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text)?.trim() || null;
-    } catch (e) { console.error('[WildOffscreen] HF error:', e); return null; }
 }
 
 async function generateEventForNPC(npc) {
@@ -481,7 +465,7 @@ async function runGenerationCycle() {
     $('#wo_status').text('').hide();
 
     if (generated === 0 && failed > 0) {
-        toastr.error('HuggingFace returned no results. Model may be loading (wait 30s and retry) or token is invalid.');
+        toastr.error('Generation failed. Check that your ST API is connected and working.');
     } else if (failed > 0) {
         toastr.warning(`Generated ${generated} events, ${failed} failed (model may be cold-starting).`);
     } else {
@@ -523,7 +507,7 @@ function updateInjection() {
 
 function onGenerationStarted() {
     const s = getSettings();
-    if (!s.enabled || !s.hfToken) return;
+    if (!s.enabled) return;
     msgCounter++;
     if (msgCounter >= s.triggerEvery) { msgCounter = 0; runGenerationCycle(); }
     updateInjection();
@@ -623,10 +607,6 @@ function buildUI() {
                 <input type="button" id="wo_generate_now" class="menu_button" value="⚡ Generate Now" />
             </div>
             <hr>
-            <label><small>HuggingFace API Token</small></label>
-            <input type="password" id="wo_hf_token" class="text_pole" placeholder="hf_..." />
-            <label><small>HuggingFace Model</small></label>
-            <input type="text" id="wo_hf_model" class="text_pole" />
             <label><small>Generate events every N messages</small></label>
             <input type="number" id="wo_trigger_every" class="text_pole" min="1" max="50" step="1" />
             <label><small>Max stored events per NPC</small></label>
@@ -645,16 +625,12 @@ jQuery(async () => {
     const s = getSettings();
 
     $('#wo_toggle').prop('checked', s.enabled);
-    $('#wo_hf_token').val(s.hfToken);
-    $('#wo_hf_model').val(s.hfModel);
     $('#wo_trigger_every').val(s.triggerEvery);
     $('#wo_max_events').val(s.maxEvents);
     $('#wo_inject_max').val(s.injectMaxMessages);
     renderNPCList();
 
     $('#wo_toggle').on('change', function () { s.enabled = this.checked; saveSettingsDebounced(); updateInjection(); });
-    $('#wo_hf_token').on('input', function () { s.hfToken = this.value.trim(); saveSettingsDebounced(); });
-    $('#wo_hf_model').on('input', function () { s.hfModel = this.value.trim(); saveSettingsDebounced(); });
     $('#wo_trigger_every').on('input', function () { s.triggerEvery = parseInt(this.value) || DEFAULTS.triggerEvery; saveSettingsDebounced(); });
     $('#wo_max_events').on('input', function () { s.maxEvents = parseInt(this.value) || DEFAULTS.maxEvents; saveSettingsDebounced(); });
     $('#wo_inject_max').on('input', function () { s.injectMaxMessages = parseInt(this.value) || 0; saveSettingsDebounced(); });
@@ -724,7 +700,7 @@ jQuery(async () => {
     });
 
     $('#wo_generate_now').on('click', async () => {
-        if (!getSettings().hfToken) { toastr.error('HuggingFace API token required.'); return; }
+        if (!getSettings().enabled) { toastr.error('Wild Offscreen is disabled.'); return; }
         await runGenerationCycle();
         toastr.success('Offscreen events generated.');
     });
