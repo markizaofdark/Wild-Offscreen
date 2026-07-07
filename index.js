@@ -419,10 +419,7 @@ async function callMainAPI(messages) {
             result = await ctx.generateRaw({ prompt: messages });
         } catch (e) {
             console.warn('[WildOffscreen] generateRaw object style failed, trying flat:', e.message);
-            const flat = messages.map(m => `[${(m.role || 'system').toUpperCase()}]
-${m.content || ''}`).join('
-
-');
+            const flat = messages.map(m => '[' + (m.role || 'system').toUpperCase() + ']\n' + (m.content || '')).join('\n\n');
             result = await ctx.generateRaw(flat, null, false, false);
         }
         console.log('[WildOffscreen] generateRaw result:', String(result || '').slice(0, 150));
