@@ -200,6 +200,26 @@ async function debugFirstEntries() {
     }
     const firstBook = bookNames[0];
 
+    // Just dump window.world_info raw — no guessing
+    const globalWI = window.world_info || window.worldInfo;
+    if (globalWI) {
+        const isArr = Array.isArray(globalWI);
+        const vals = isArr ? globalWI : Object.values(globalWI);
+        const first = vals[0];
+        return {
+            bookNames,
+            activeBook: firstBook,
+            totalEntries: 0,
+            rawKeys: ['RAW DUMP'],
+            rawPreview: `isArray=${isArr} | length=${vals.length} | typeof=${typeof globalWI} | first=${JSON.stringify(first).slice(0, 400)}`,
+            sample: [],
+        };
+    }
+    return { error: 'window.world_info not found', bookNames, activeBook: firstBook };
+
+    // old code below — unreachable, kept for reference
+    const DEAD = true; if (DEAD) return {};
+
     // Try multiple endpoints to find which one works
     let rawResponse = null;
     let rawKeys = [];
