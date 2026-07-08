@@ -719,20 +719,29 @@ function parseBatchResponse(text, count) {
         if (!match) { results.push(null); continue; }
 
         let raw = match[1].trim();
+        // Remove any leading/trailing quotes the model might add
+        raw = raw.replace(/^["']|["']$/g, '').trim();
+
         let location = 'unknown';
         let sentence = raw;
 
-        // Split by pipe: "location | event"
+        // Try to split by pipe: "location | event"
         const pipeIdx = raw.indexOf('|');
-        if (pipeIdx > 0) {
-            location = raw.slice(0, pipeIdx).trim();
-            sentence = raw.slice(pipeIdx + 1).trim();
+        if (pipeIdx > 0 && pipeIdx < 60) {
+            // Only treat as location|event if left side looks like a location (short, no period)
+            const maybeLocation = raw.slice(0, pipeIdx).trim();
+            const maybeEvent = raw.slice(pipeIdx + 1).trim();
+            if (maybeLocation.length > 0 && maybeLocation.length < 50 && !maybeLocation.includes('.') && maybeEvent.length > 10) {
+                location = maybeLocation;
+                sentence = maybeEvent;
+            }
         }
 
         // Take only first sentence
         const first = sentence.match(/^[^.!?]+[.!?]/);
         if (first && first[0].length > 10) sentence = first[0].trim();
 
+        // Always return { location, text } — never raw object in UI
         results.push(sentence.length >= 10 ? { location, text: sentence } : null);
     }
     return results;
@@ -794,8 +803,14 @@ async function runGenerationCycle() {
 
     const beforeCounts = Object.fromEntries(keys.map(k => [k, npcs[k].events.length]));
 
-    // Single batch request for all NPCs
+    // Single batch request — retry once on failure
     await generateEventsForAllNPCs(npcs);
+    const firstGenerated = keys.filter(k => npcs[k].events.length > beforeCounts[k]).length;
+    if (firstGenerated === 0) {
+        console.log('[WildOffscreen] First attempt got 0 results, retrying...');
+        await new Promise(r => setTimeout(r, 1500));
+        await generateEventsForAllNPCs(npcs);
+    }
 
     await saveNPCs(npcs);
     updateInjection();
@@ -893,10 +908,11 @@ function renderNPCList() {
             for (const ev of [...npc.events].reverse()) {
                 const color = ev.positive ? '#66bb6a' : '#ef5350';
                 const locTag = ev.location && ev.location !== 'unknown' ? '<span class="wo_event_loc">📍 ' + ev.location + '</span> ' : '';
+                const evText = typeof ev.text === 'string' ? ev.text : String(ev.text || '');
                 evContainer.append('<div class="wo_event">'
                     + '<span class="wo_event_meta" style="color:' + color + '">' + (ev.positive ? '▲' : '▼') + ' ' + ev.scale.toUpperCase() + ' · ' + ev.category + '</span>'
                     + locTag
-                    + '<div class="wo_event_text">' + ev.text + '</div>'
+                    + '<div class="wo_event_text">' + evText + '</div>'
                     + '</div>');
             }
         }
