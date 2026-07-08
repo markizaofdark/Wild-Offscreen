@@ -24,14 +24,21 @@ const EXT = 'wild-offscreen';
 const INJECTION_POSITION = 1;
 
 const DEFAULTS = {
-    maxMessages: 30,       // НОВЫЙ ПАРАМЕТР
-    maxCharsPerMsg: 2000,  // НОВЫЙ ПАРАМЕТР
+    maxMessages: 30,
+    maxCharsPerMsg: 2000,
     enabled: true,
     triggerEvery: 5,
     maxEvents: 7,
     injectMaxMessages: 0,
     connectionProfile: '',
     maxTokens: 200,
+    outputLanguage: 'en',
+};
+
+const LANGUAGE_INSTRUCTION = {
+    'en': 'Write in English.',
+    'ru': 'Write in Russian (на русском языке).',
+    'uk': 'Write in Ukrainian (українською мовою).',
 };
 
 const SCALE = [
@@ -950,7 +957,13 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
     const s = getSettings();
     const npcBlocks = npcList.map((item, i) => {
         const { npc, params } = item;
-        const history = npc.events.slice(-3).map(e => '- ' + e.text).join('\n') || 'None yet.';
+        const historyEvents = npc.events.slice(-7);
+        const history = historyEvents.length
+            ? historyEvents.map((e, hi) => {
+                const prefix = hi === historyEvents.length - 1 ? '  [latest] ' : '  [' + (hi + 1) + '] ';
+                return prefix + e.text;
+            }).join('\n')
+            : 'None yet.';
         const impact = params.isPositive ? 'POSITIVE' : 'NEGATIVE';
         const npcContextResult = getChatContextForNPC(npc, s.maxMessages, s.maxCharsPerMsg);
         const npcContext = npcContextResult.text;
@@ -988,7 +1001,9 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             + 'DESCRIPTION: ' + npc.description.slice(0, 3000) + '\n'
             + (lastLoc ? lastLoc + '\n' : '')
             + 'PERMANENT FACTS (always true, never contradict these): ' + (facts.length ? '\n' + factsBlock : 'None.') + '\n'
-            + 'RECENT OFFSCREEN EVENTS (do not repeat): ' + history + '\n'
+            + 'OFFSCREEN HISTORY (chronological, [latest] is most recent):\n'
+            + history + '\n'
+            + 'Use this as continuity context — build naturally on what has already happened. Do not repeat the same events or themes.\n'
             + 'MENTIONS IN STORY (for context): ' + (npcContext || 'none') + '\n'
             + (inScene
                 ? 'STATUS: THIS CHARACTER IS CURRENTLY IN THE ACTIVE SCENE. DO NOT generate offscreen events.'
@@ -1040,13 +1055,14 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             content: 'You write brief offscreen event summaries for supporting characters in a collaborative story. '
                 + 'You are given the main bot character, the user character (player), and a list of NPCs. '
                 + 'NPCs are secondary characters whose lives continue offscreen while the main scene unfolds. '
+                + (LANGUAGE_INSTRUCTION[getSettings().outputLanguage] || LANGUAGE_INSTRUCTION.en) + ' '
                 + 'Dry, specific, one sentence per character. No names at sentence start. No dialogue. No poetic language. '
                 + 'RULE 1: Each NPC is marked [IN SCENE] or [OFFSCREEN]. '
                 + '[IN SCENE] = write exactly: "location | in-scene | No offscreen events. Currently in scene." '
                 + '[OFFSCREEN] = adapt the EVENT ARCHETYPE to this specific character and write one concrete sentence. '
                 + 'RULE 2: The archetype is a direction, not a script. Translate it into something specific to this person — their life, job, relationships, habits, fears. '
                 + 'RULE 3: Scale is self-reported by you in the second field. Be honest — if what you wrote is minor, say minor. If it is genuinely life-altering, say major. Do not inflate or deflate. '
-                + 'RULE 4: No repetition with RECENT OFFSCREEN EVENTS — different theme, different action, different phrasing every time. '
+                + 'RULE 4: Use OFFSCREEN HISTORY as continuity — the new event should feel like a natural next step in this character\'s ongoing life. Do not repeat themes or actions verbatim, but cause-and-effect is welcome. '
                 + 'RULE 5: Exactly three pipe-separated fields per line. Nothing else.',
         },
         { role: 'user', content: userContent },
@@ -1139,6 +1155,7 @@ async function generateEventsForAllNPCs(npcs) {
     const npcList = keys.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
 
     const sceneInfo = parseSceneInfo();
+    const storyDate = sceneInfo ? [sceneInfo.date, sceneInfo.time].filter(Boolean).join(' ') : null;
     const messages = buildBatchMessages(npcList, mainCharInfo, sharedChat, sceneInfo);
     const rawText = await callAPI(messages, npcList.length);
     console.log('[WildOffscreen] Batch response:', rawText?.slice(0, 500));
@@ -1170,6 +1187,7 @@ async function generateEventsForAllNPCs(npcs) {
             category: params.category,
             positive: params.isPositive,
             timestamp: Date.now(),
+            storyDate: storyDate || null,
         };
 
         npc.events.push(event);
@@ -1185,6 +1203,7 @@ async function generateEventsForAllNPCs(npcs) {
                     category: params.category,
                     positive: params.isPositive,
                     timestamp: Date.now(),
+                    storyDate: storyDate || null,
                     auto: true,
                 });
                 console.log('[WildOffscreen] Auto-promoted self-reported MAJOR to permanentFacts:', npc.name);
@@ -1387,7 +1406,7 @@ function renderNPCList() {
                 const fRow = $(`
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 6px;border-radius:3px;background:color-mix(in srgb, var(--SmartThemeQuoteColor) 8%, transparent);border-left:2px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);">
                         <div style="flex:1;font-size:0.82em;">
-                            <span style="color:${fcolor};font-weight:600;">${fact.positive ? '<i class="fa-solid fa-caret-up"></i>' : '<i class="fa-solid fa-caret-down"></i>'} ${fact.category || ''}${autoTag}</span>
+                            <span style="color:${fcolor};font-weight:600;">${fact.positive ? '<i class="fa-solid fa-caret-up"></i>' : '<i class="fa-solid fa-caret-down"></i>'} ${fact.category || ''}${autoTag}${fact.storyDate ? ' <span style="opacity:0.4;font-weight:400;font-size:0.85em;">· ' + fact.storyDate + '</span>' : ''}</span>
                             <div style="opacity:0.9;line-height:1.4;">${fact.text}</div>
                         </div>
                         <button class="wo_btn_delete_fact menu_button" data-fidx="${fi}" title="Remove permanent fact" style="padding:0px 4px;font-size:0.75em;min-width:unset;opacity:0.4;"><i class="fa-solid fa-xmark"></i></button>
@@ -1419,7 +1438,7 @@ function renderNPCList() {
                 const evRow = $(`
                     <div class="wo_event" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
                         <div style="flex:1;">
-                            <span class="wo_event_meta" style="color:${color}">${ev.positive ? '<i class="fa-solid fa-caret-up"></i>' : '<i class="fa-solid fa-caret-down"></i>'} ${ev.scale.toUpperCase()} · ${ev.category}${isMajor ? ' <i class="fa-solid fa-star" style="font-size:0.8em;color:#ffa726;"></i>' : ''}</span>
+                            <span class="wo_event_meta" style="color:${color}">${ev.positive ? '<i class="fa-solid fa-caret-up"></i>' : '<i class="fa-solid fa-caret-down"></i>'} ${ev.scale.toUpperCase()} · ${ev.category}${isMajor ? ' <i class="fa-solid fa-star" style="font-size:0.8em;color:#ffa726;"></i>' : ''}${ev.storyDate ? ' <span style="opacity:0.45;font-weight:400;font-size:0.9em;">· ' + ev.storyDate + '</span>' : ''}</span>
                             ${locTag}
                             <div class="wo_event_text">${evText}</div>
                         </div>
@@ -1462,6 +1481,7 @@ function renderNPCList() {
                         category: ev.category,
                         positive: ev.positive,
                         timestamp: Date.now(),
+                        storyDate: ev.storyDate || null,
                         auto: false,
                     });
                     await saveNPCs(n);
@@ -1533,9 +1553,14 @@ function buildUI() {
             </div>
             <div class="wo_actions" style="margin-top:4px;">
                 <button id="wo_generate_now" class="menu_button"><i class="fa-solid fa-bolt"></i> Generate Now</button>
-                <button id="wo_debug_btn" class="menu_button"><i class="fa-solid fa-bug"></i> Debug</button>
             </div>
-            <div id="wo_debug_panel" class="wo_debug_out" style="display:none;"></div>
+
+            <hr>
+
+            <div class="wo_section_label">Add NPC manually</div>
+            <input type="text" id="wo_manual_name" class="text_pole" placeholder="Name" style="margin-bottom:4px;" />
+            <textarea id="wo_manual_desc" class="text_pole" placeholder="Description (optional)" rows="3" style="resize:vertical;margin-bottom:4px;"></textarea>
+            <button id="wo_manual_add" class="menu_button" style="width:100%;"><i class="fa-solid fa-user-plus"></i> Add NPC</button>
 
             <hr>
 
@@ -1546,6 +1571,13 @@ function buildUI() {
             <input type="number" id="wo_max_chars" class="text_pole" value="${s.maxCharsPerMsg || 2000}" />
 
             <hr>
+
+            <div class="wo_section_label">Output Language</div>
+            <div class="wo_lang_row">
+                <button class="wo_lang_btn menu_button" data-lang="en">EN</button>
+                <button class="wo_lang_btn menu_button" data-lang="ru">RU</button>
+                <button class="wo_lang_btn menu_button" data-lang="uk">UK</button>
+            </div>
 
             <div class="wo_section_label">Connection Profile</div>
             <div style="display:flex;gap:6px;align-items:center;">
@@ -1628,6 +1660,22 @@ jQuery(async () => {
     refreshProfileSelect();
     renderNPCList();
 
+    // Language buttons
+    function updateLangButtons() {
+        const lang = getSettings().outputLanguage || 'en';
+        $('.wo_lang_btn').each(function() {
+            const active = $(this).data('lang') === lang;
+            $(this).toggleClass('wo_lang_active', active);
+        });
+    }
+    updateLangButtons();
+    $('.wo_lang_btn').on('click', function() {
+        const s = getSettings();
+        s.outputLanguage = $(this).data('lang');
+        saveSettingsDebounced();
+        updateLangButtons();
+    });
+
     $('#wo_toggle').on('change', function () { s.enabled = this.checked; saveSettingsDebounced(); updateInjection(); });
     $('#wo_profile_select').on('change', function () { s.connectionProfile = this.value; saveSettingsDebounced(); });
     $('#wo_profile_refresh').on('click', () => { refreshProfileSelect(); toastr.info('Connection profiles refreshed.'); });
@@ -1671,6 +1719,24 @@ jQuery(async () => {
         this.value = '';
     });
 
+    $('#wo_manual_add').on('click', async () => {
+        const name = $('#wo_manual_name').val().trim();
+        if (!name) { toastr.warning('Enter a name for the NPC.'); return; }
+        const desc = $('#wo_manual_desc').val().trim();
+        const npcs = getNPCs();
+        if (npcs[name]) {
+            toastr.warning(`"${name}" is already registered.`);
+            return;
+        }
+        npcs[name] = { name, description: desc, enabled: true, events: [], permanentFacts: [] };
+        await saveNPCs(npcs);
+        renderNPCList();
+        updateInjection();
+        $('#wo_manual_name').val('');
+        $('#wo_manual_desc').val('');
+        toastr.success(`"${name}" added.`);
+    });
+
     $('#wo_generate_now').on('click', async () => {
         if (!getConnectionProfiles().length) {
             toastr.error('No ST Connection Profiles found. Create one in SillyTavern settings first.');
@@ -1679,100 +1745,7 @@ jQuery(async () => {
         await runGenerationCycle();
     });
 
-    $('#wo_debug_btn').on('click', () => {
-        const panel = $('#wo_debug_panel');
-        panel.empty().show();
-
-        const npcs = getNPCs();
-        const keys = Object.keys(npcs);
-        const s = getSettings();
-        const mainInfo = getMainCharInfo();
-
-        panel.append('<div class="wo_debug_title"><i class="fa-solid fa-bug"></i> Wild Offscreen Debug</div>');
-
-        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Settings</div>');
-        panel.append('<div class="wo_debug_entry">'
-            + 'Profile: <code>' + (s.connectionProfile || 'default') + '</code><br>'
-            + 'Trigger every: <code>' + s.triggerEvery + ' msgs</code><br>'
-            + 'Max events/NPC: <code>' + s.maxEvents + '</code>'
-            + '</div>');
-
-        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Characters in context</div>');
-        panel.append('<div class="wo_debug_entry">'
-            + (mainInfo ? '<code>' + mainInfo.slice(0, 400) + (mainInfo.length > 400 ? '…' : '') + '</code>' : '<span style="color:#ef5350">Not found</span>')
-            + '</div>');
-
-        try {
-            const ctx = SillyTavern.getContext();
-            const chat = ctx.chat || [];
-            const nonSystem = chat.filter(m => !m.is_system && m.mes);
-            panel.append('<div class="wo_debug_title" style="margin-top:8px;">Chat</div>');
-            panel.append('<div class="wo_debug_entry">'
-                + 'Total messages: <code>' + chat.length + '</code><br>'
-                + 'Non-system: <code>' + nonSystem.length + '</code>'
-                + '</div>');
-        } catch(e) {
-            panel.append('<div class="wo_debug_entry" style="color:#ef5350">Chat error: ' + e.message + '</div>');
-        }
-
-        if (!keys.length) {
-            panel.append('<div class="wo_debug_entry" style="color:#ef5350">No NPCs registered.</div>');
-        } else {
-            panel.append('<div class="wo_debug_title" style="margin-top:8px;">NPC context search</div>');
-            for (const key of keys) {
-                const npc = npcs[key];
-                const result = getChatContextForNPC(npc);
-                const d = result.debug;
-                const statusColor = d.mentionCount > 0 ? '#66bb6a' : '#ffa726';
-                panel.append('<div class="wo_debug_entry">'
-                    + '<b>' + npc.name + '</b>'
-                    + (npc.enabled ? '' : ' <span style="color:#ef5350">[disabled]</span>') + '<br>'
-                    + 'Search terms: <code>' + d.searchTerms.join(', ') + '</code><br>'
-                    + 'Regexes: <code>' + d.searchRegexes.join(' | ') + '</code><br>'
-                    + 'Chat scanned: <code>' + d.nonSystemMessages + ' msgs</code><br>'
-                    + 'Mentions found: <code style="color:' + statusColor + '">' + d.mentionCount + '</code><br>'
-                    + 'Used in prompt: <code>' + d.usedMessages + ' msgs</code>'
-                    + (d.fallback ? ' <span style="color:#ffa726">(fallback — no mentions)</span>' : '') + '<br>'
-                    + 'Last location: <code>' + (npc.lastLocation || 'not set') + '</code><br>'
-                    + 'Lorebook desc: <code>' + npc.description.length + ' chars</code><br>'
-                    + 'Stored events: <code>' + npc.events.length + '</code>'
-                    + (d.error ? '<br><span style="color:#ef5350">Error: ' + d.error + '</span>' : '')
-                    + '</div>');
-            }
-        }
-
-        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Batch prompt preview (first 600 chars)</div>');
-        try {
-            const enabledNpcs = keys.filter(k => npcs[k].enabled);
-            if (enabledNpcs.length) {
-                const npcList = enabledNpcs.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
-                const sharedChat = (() => {
-                    try {
-                        const ctx = SillyTavern.getContext();
-                        const chat = ctx.chat || [];
-                        const _s = getSettings();
-                        return chat
-                            .filter(m => !m.is_system && m.mes)
-                            .slice(-_s.maxMessages)
-                            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + m.mes.replace(/<[^>]+>/g, '').trim().slice(0, _s.maxCharsPerMsg))
-                            .join('\n');
-                    } catch(e) { return ''; }
-                })();
-                const _sceneInfo = parseSceneInfo();
-                const msgs = buildBatchMessages(npcList, mainInfo, sharedChat, _sceneInfo);
-                const preview = msgs[1].content.slice(0, 600);
-                panel.append('<div class="wo_debug_entry"><code style="word-break:break-all;font-size:0.78em;">'
-                    + preview.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                    + (msgs[1].content.length > 600 ? '\n…(' + msgs[1].content.length + ' chars total)' : '')
-                    + '</code></div>');
-            } else {
-                panel.append('<div class="wo_debug_entry" style="color:#ffa726">No enabled NPCs to preview.</div>');
-            }
-        } catch(e) {
-            panel.append('<div class="wo_debug_entry" style="color:#ef5350">Preview error: ' + e.message + '</div>');
-        }
-    });
-
+    
     // CHARACTER_MESSAGE_RENDERED fires after the bot finishes writing — safe to count here.
     // This avoids the re-entrant loop that GENERATION_STARTED caused (it fires during our own callAPI too).
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, () => {
