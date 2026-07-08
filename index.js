@@ -322,27 +322,98 @@ function rollD20() { return Math.floor(Math.random() * 20) + 1; }
 function getScale(roll) { return SCALE.find(s => roll >= s.min && roll <= s.max) || SCALE[0]; }
 function getCategory() { return CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)]; }
 
+/**
+ * Get chat messages mentioning the NPC by name.
+ * Takes up to maxMessages most recent matches, each truncated to maxCharsPerMsg.
+ * Falls back to last 5 messages if no mentions found.
+ */
+function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 300) {
+    try {
+        const ctx = SillyTavern.getContext();
+        const chat = ctx.chat || [];
+
+        // Build search terms from NPC name — all parts (first name, last name, etc.)
+        const nameParts = npcName.trim().split(/\s+/).filter(p => p.length > 2);
+        const searchTerms = [npcName.toLowerCase(), ...nameParts.map(p => p.toLowerCase())];
+
+        const cleanMsg = (m) => m.mes.replace(/<[^>]+>/g, '').trim();
+
+        // Find all non-system messages mentioning this NPC
+        const mentions = chat
+            .filter(m => !m.is_system && m.mes)
+            .filter(m => {
+                const lower = cleanMsg(m).toLowerCase();
+                return searchTerms.some(term => lower.includes(term));
+            });
+
+        let selected;
+        if (mentions.length > 0) {
+            // Take last maxMessages mentions
+            selected = mentions.slice(-maxMessages);
+            console.log('[WildOffscreen] Found', mentions.length, 'messages mentioning', npcName, '— using last', selected.length);
+        } else {
+            // Fallback: last 5 messages (location/mood context)
+            selected = chat.filter(m => !m.is_system && m.mes).slice(-5);
+            console.log('[WildOffscreen] No mentions of', npcName, '— using last 5 messages as fallback');
+        }
+
+        return selected
+            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + cleanMsg(m).slice(0, maxCharsPerMsg))
+            .join('\n');
+    } catch (e) {
+        console.warn('[WildOffscreen] getChatContextForNPC error:', e.message);
+        return '';
+    }
+}
+
 function buildMessages(npc, scale, category, isPositive) {
-    const history = npc.events.slice(-3).map(e => '- ' + e.text).join('\n') || 'No previous events.';
+    const history = npc.events.slice(-3).map(e => '- ' + e.text).join('\n') || 'None yet.';
+    const desc = npc.description.slice(0, 600);
+    const impact = isPositive ? 'positive' : 'negative';
+    const recentChat = getChatContextForNPC(npc.name);
+
+    // Event type descriptions for clarity
+    const scaleDesc = {
+        'minor':   'small but meaningful',
+        'notable': 'significant, changes something',
+        'major':   'major, hard to ignore',
+    }[scale.id] || scale.label;
+
+    const categoryDesc = {
+        'Personal':     'personal development or habit',
+        'Relationship': 'interaction or change with another person',
+        'Status':       'change in social/material/physical status',
+        'Discovery':    'finding out or stumbling upon something',
+        'Social':       'social situation or public event',
+    }[category] || category;
+
+    console.log('[WildOffscreen] Prompt for', npc.name,
+        '| desc:', desc.length, 'chars',
+        '| history:', history,
+        '| chat context:', recentChat.length, 'chars',
+        '| scale:', scale.label, '| cat:', category, '| impact:', impact);
+
     return [
         {
             role: 'system',
-            content: 'You write brief narrative descriptions of offscreen events happening to characters in a story. '
-                + 'Write ONLY the event itself as plain prose — no labels, no character name prefix, no meta-commentary. '
-                + 'Do not start with the character name. Do not use bullet points or lists.',
+            content: 'You write single-sentence offscreen event logs for story characters. '
+                + 'One sentence only. Dry, specific, grounded in the character. '
+                + 'No character name at the start. No dialogue. No poetic language.',
         },
         {
             role: 'user',
-            content: 'Write a brief offscreen event for ' + npc.name + '.\n\n'
-                + 'Character description: ' + npc.description.slice(0, 500) + '\n\n'
-                + 'Their recent history (do not repeat these):\n' + history + '\n\n'
-                + 'Event requirements:\n'
-                + '- Narrative scale: ' + scale.label + '\n'
-                + '- Event category: ' + category + '\n'
-                + '- Overall impact: ' + (isPositive ? 'positive' : 'negative') + '\n\n'
-                + 'Write exactly two sentences in plain English. '
-                + 'First sentence: what happened. Second sentence: the immediate consequence. '
-                + 'Do not start with the character name.',
+            content: 'CHARACTER: ' + npc.name + '\n'
+                + 'PERSONALITY & BACKGROUND: ' + desc + '\n'
+                + 'THEIR RECENT OFFSCREEN EVENTS (do not repeat): ' + history + '\n'
+                + (recentChat ? 'CURRENT STORY CONTEXT (last messages, for location/mood/plot reference):\n' + recentChat + '\n' : '')
+                + '\nWrite ONE sentence (15-25 words) describing what ' + npc.name + ' just did or experienced offscreen.'
+                + '\nEvent must be:'
+                + '\n- ' + impact.toUpperCase() + ' in outcome for them'
+                + '\n- Scale: ' + scaleDesc
+                + '\n- Type: ' + categoryDesc
+                + '\n- Consistent with their personality, current location, and the ongoing story'
+                + '\n- Specific, not generic'
+                + '\n\nOne sentence only. Start with a verb or situation, not their name.',
         },
     ];
 }
@@ -363,10 +434,16 @@ async function generateEventForNPC(npc) {
         .replace(/^(two sentences|output|event text|result)[:\s]+/i, '')
         .trim();
 
-    // If result is suspiciously short (just a name), log and skip
-    if (text.length < 20) {
+    // If result is suspiciously short (just a name or empty), skip
+    if (text.length < 10) {
         console.warn('[WildOffscreen] Generated text too short for', npc.name, '- raw was:', JSON.stringify(text));
         return null;
+    }
+
+    // Trim to first sentence if model wrote more than one
+    const firstSentence = text.match(/^[^.!?]+[.!?]/);
+    if (firstSentence && firstSentence[0].length > 10) {
+        text = firstSentence[0].trim();
     }
 
     return { text, scale: scale.id, category, positive: isPositive, timestamp: Date.now() };
