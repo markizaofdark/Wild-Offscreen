@@ -217,7 +217,7 @@ function registerNPCs(scanned) {
             added++;
         } else {
             npcs[name].description = description;
-            // Migrate old NPCs that don't have permanentFacts yet
+            // Migrate old NPCs that do not have permanentFacts yet
             if (!npcs[name].permanentFacts) npcs[name].permanentFacts = [];
         }
     }
@@ -509,15 +509,15 @@ function getChatContextForNPC(npc, maxMessages = 30, maxCharsPerMsg = 3000) {
 
 const SCALE_DESC = {
     'minor':   'MINOR — a small, forgettable moment. A habit, a passing mood, a minor errand. Examples: bought groceries, forgot an umbrella, had a bad coffee, daydreamed about someone.',
-    'notable': 'NOTABLE — something worth remembering that shifts their day or week. A real change, not just a moment. Examples: got into an argument that ended badly, received unexpected news, lost something important, made a decision they've been avoiding, ran into someone they didn't expect.',
-    'major':   'MAJOR — a life-altering event. Something that changes who they are, what they have, or what their future looks like. This is NOT a slightly unusual moment — it must be genuinely significant. Examples: lost their job, found out they're pregnant, witnessed a crime, had a serious accident, received a diagnosis, ended or started a relationship that matters, made an irreversible decision.',
+    'notable': 'NOTABLE — something worth remembering that shifts their day or week. A real change, not just a moment. Examples: got into an argument that ended badly, received unexpected news, lost something important, made a decision they had been avoiding, ran into someone they did not expect.',
+    'major':   'MAJOR — a life-altering event. Something that changes who they are, what they have, or what their future looks like. This is NOT a slightly unusual moment — it must be genuinely significant. Examples: lost their job, found out about a pregnancy, witnessed a crime, had a serious accident, received a diagnosis, ended or started a relationship that matters, made an irreversible decision.',
 };
 
 const CATEGORY_DESC = {
     'Personal':     'Personal — internal state, body, habits, private life. Something happening TO them or WITHIN them, not involving others much.',
     'Relationship': 'Relationship — a real interaction or shift with a specific other person. Not just thinking about someone — actual contact, conflict, revelation, change in bond.',
     'Status':       'Status — change in their material, social, legal, or physical standing. Job, money, housing, health, reputation, possessions.',
-    'Discovery':    'Discovery — finding out something they didn't know. Information, a secret, a place, an object, a truth about themselves or someone else.',
+    'Discovery':    'Discovery — finding out something they did not know. Information, a secret, a place, an object, a truth about themselves or someone else.',
     'Social':       'Social — involvement in a group event, public situation, or community dynamic. Not just being present — actively affected by it.',
 };
 
@@ -663,7 +663,7 @@ function parseBatchResponse(text, count) {
             }
         }
 
-        // Detect "currently in scene" marker — don't treat as a real event
+        // Detect "currently in scene" marker — do not treat as a real event
         const inSceneMarker = /no offscreen events|currently in scene/i.test(sentence);
         if (inSceneMarker) {
             results.push({ location, text: sentence, inScene: true });
@@ -725,7 +725,7 @@ async function generateEventsForAllNPCs(npcs) {
             continue;
         }
 
-        // NPC is currently in scene — don't create an event, just log
+        // NPC is currently in scene — do not create an event, just log
         if (result.inScene) {
             console.log('[WildOffscreen]', npc.name, 'is in scene — skipping event creation');
             continue;
