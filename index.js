@@ -34,12 +34,358 @@ const DEFAULTS = {
     maxTokens: 200,
 };
 
-const CATEGORIES = ['Personal', 'Relationship', 'Status', 'Discovery', 'Social'];
 const SCALE = [
     { min: 1,  max: 8,  id: 'minor',   label: 'MINOR'   },
     { min: 9,  max: 16, id: 'notable', label: 'NOTABLE' },
     { min: 17, max: 20, id: 'major',   label: 'MAJOR'   },
 ];
+
+// ── Offscreen event pools ──────────────────────────────────
+// Архетипы личных событий NPC по масштабу и категории.
+// Модель получает архетип и адаптирует его под конкретного персонажа.
+
+const EVENT_POOLS = {
+    minor: {
+        Personal: {
+            positive: [
+                'found a small pleasure in an otherwise unremarkable day',
+                'finally got around to something they had been putting off for weeks',
+                'woke up feeling unexpectedly rested and clear-headed',
+                'allowed themselves a minor indulgence without guilt',
+                'noticed something small about themselves they had not noticed before',
+                'completed a private routine that gave them quiet satisfaction',
+                'spent time alone in a way that felt restorative rather than isolating',
+                'came across something that reminded them of a better period of their life',
+            ],
+            negative: [
+                'could not shake a low mood without any clear reason',
+                'was reminded of something they would rather forget',
+                'made a small mistake they will be quietly replaying for days',
+                'slept badly and it colored the whole day',
+                'found themselves unable to concentrate on something that usually comes easily',
+                'felt a familiar anxiety return over something minor',
+                'lost something small but meaningful to them',
+                'spent more time alone than they intended and felt the weight of it',
+            ],
+        },
+        Relationship: {
+            positive: [
+                'had a brief but warm exchange with someone they see regularly',
+                'received a small, unexpected gesture of kindness from someone',
+                'cleared up a minor tension with someone without it becoming a real conversation',
+                'remembered someone fondly and let themselves sit with it',
+                'was asked for their opinion and felt genuinely heard',
+                'ran into someone from their past under pleasant circumstances',
+                'shared a moment of unplanned honesty with someone they trust',
+                'felt unexpectedly close to someone during an ordinary interaction',
+            ],
+            negative: [
+                'had an interaction that left a faintly wrong feeling they cannot name',
+                'said something slightly off and noticed it only afterward',
+                'felt overlooked by someone whose attention matters to them',
+                'ran into someone they have been avoiding',
+                'had a message go unanswered long enough to mean something',
+                'felt the distance between themselves and someone close grow a little wider',
+                'witnessed something between two others that made them uncomfortable',
+                'realized they had misread someone they thought they knew well',
+            ],
+        },
+        Status: {
+            positive: [
+                'managed a small financial worry that had been nagging at them',
+                'received a minor but genuine compliment on their work',
+                'got something repaired or sorted that had been broken for too long',
+                'found a practical solution to an inconvenience they had been living around',
+                'was recognized for something small but it felt good',
+                'had an administrative task finally come through after delays',
+                'received something they were owed without having to ask again',
+                'gained a small practical advantage through no particular effort',
+            ],
+            negative: [
+                'an unexpected expense arrived at a bad time',
+                'something they relied on broke or stopped working',
+                'a minor bureaucratic obstacle turned into something tedious',
+                'received feedback on their work that stung more than it should have',
+                'found themselves behind on something they thought was under control',
+                'a small but relied-upon arrangement fell through',
+                'lost a minor privilege or convenience without warning',
+                'a task they had planned took much longer than expected and threw off the day',
+            ],
+        },
+        Discovery: {
+            positive: [
+                'stumbled onto a piece of information that answered a small lingering question',
+                'overheard something that made a confusing situation make more sense',
+                'found something they had forgotten they owned, and it was useful',
+                'noticed a pattern they had been missing for a while',
+                'came across a resource, place or idea that felt genuinely useful',
+                'learned something small about someone that made them easier to read',
+                'realized a past assumption was slightly wrong, and the correction was a relief',
+                'encountered something that gave them a new way to think about an old problem',
+            ],
+            negative: [
+                'found out something minor that they would have preferred not to know',
+                'noticed a detail that made something previously comfortable feel uncertain',
+                'overheard something not meant for them that now they cannot unknow',
+                'discovered a small error they had made that went unnoticed — until now',
+                'learned something about someone that did not fit the image they had built',
+                'came across information that reopened something they thought was settled',
+                'realized they had been operating on a wrong assumption for longer than they thought',
+                'found evidence of something they had been telling themselves was not happening',
+            ],
+        },
+        Social: {
+            positive: [
+                'found themselves in a group situation that was better than expected',
+                'was included in something they had not expected to be invited to',
+                'navigated a social obligation without it costing them much',
+                'found unexpected common ground with someone in a group setting',
+                'left a social situation feeling more at ease than when they arrived',
+                'was seen doing something well in front of people who mattered',
+                'had a brief but pleasant exchange in a public setting',
+                'found the crowd or atmosphere of a place unexpectedly agreeable',
+            ],
+            negative: [
+                'endured a social obligation that drained more than expected',
+                'said something in a group that landed poorly and they felt it',
+                'found themselves on the outside of a dynamic they did not fully understand',
+                'was put on the spot in a way they were not prepared for',
+                'witnessed something in a public setting that left them unsettled',
+                'was subjected to an opinion or behavior they could not easily challenge',
+                'left a social situation with the vague feeling of having performed badly',
+                'felt their status within a group shift slightly in the wrong direction',
+            ],
+        },
+    },
+
+    notable: {
+        Personal: {
+            positive: [
+                'made a decision about their own life that they had been avoiding for weeks',
+                'confronted a habit or pattern and actually changed something about it',
+                'experienced a genuine shift in how they see themselves or their situation',
+                'allowed themselves to want something they had been denying for too long',
+                'recovered from something that had been affecting them more than they admitted',
+                'reached a private resolution that gave them a sense of direction',
+                'had an experience that cracked open something they had kept sealed',
+                'took a meaningful step toward something that matters to them',
+            ],
+            negative: [
+                'had a crisis of confidence that shook something they thought was settled',
+                'confronted something about themselves they had been successfully avoiding',
+                'relapsed into a pattern they thought they had moved past',
+                'experienced a loss of motivation that does not feel temporary',
+                'made a personal decision under pressure that they are not sure was right',
+                'realized they have been lying to themselves about something important',
+                'felt something close to breaking point over something others might call minor',
+                'went through something alone that they should not have had to go through alone',
+            ],
+        },
+        Relationship: {
+            positive: [
+                'had a genuine conversation with someone that changed how they see each other',
+                'repaired a relationship that had been silently deteriorating',
+                'crossed a threshold of closeness with someone that cannot be uncrossed',
+                'told someone something true that they had been holding back',
+                'was forgiven for something by someone whose forgiveness matters',
+                'finally asked for help from someone and was not let down',
+                'reconnected with someone they had drifted from in a way that felt real',
+                'realized the depth of a relationship that they had been taking for granted',
+            ],
+            negative: [
+                'had a fight with someone important that left real damage behind',
+                'said something they cannot take back to someone who matters',
+                'discovered that a relationship they trusted had a crack running through it',
+                'felt betrayed by someone in a way they will not easily forget',
+                'ended or stepped back from a connection that had become too costly',
+                'realized that someone they relied on is not who they thought',
+                'watched a relationship slide toward something worse without knowing how to stop it',
+                'was forced to choose between two people or loyalties and made the choice',
+            ],
+        },
+        Status: {
+            positive: [
+                'received unexpected recognition that changed how they are perceived in their environment',
+                'secured a material improvement in their situation that had felt out of reach',
+                'gained a meaningful degree of autonomy or freedom they did not have before',
+                'resolved a financial or practical problem that had been a background source of stress',
+                'was offered an opportunity that genuinely changes their options',
+                'gained the trust or backing of someone whose support carries real weight',
+                'got out of an obligation or arrangement that had been limiting them',
+                'achieved something in their work or responsibilities that they are actually proud of',
+            ],
+            negative: [
+                'lost something material or practical that will take time and effort to recover from',
+                'had their position, standing, or credibility damaged in their environment',
+                'encountered a financial or logistical problem they cannot easily absorb',
+                'found themselves locked into an obligation that narrows their options',
+                'failed at something that mattered and the failure was visible to others',
+                'lost the support or backing of someone whose opinion carries weight',
+                'was passed over for something they deserved and felt the injustice of it',
+                'had a practical arrangement that underpinned their stability fall apart',
+            ],
+        },
+        Discovery: {
+            positive: [
+                'uncovered information that reframes a situation they had been navigating wrongly',
+                'found evidence that someone they doubted is actually trustworthy',
+                'learned something that resolves a question that has been quietly eating at them',
+                'discovered a capability in themselves they did not know was there',
+                'came across a piece of truth that makes a difficult situation workable',
+                'found out something about their past that explains more than they expected',
+                'learned something that shifts their understanding of someone important to them',
+                'received information that opens a door they thought was permanently closed',
+            ],
+            negative: [
+                'found out something about someone they trusted that they cannot reconcile',
+                'uncovered information that makes a situation much more complicated than it appeared',
+                'discovered they have been deceived, and it was not accidental',
+                'learned something about themselves they were not ready to know',
+                'found out about something that happened without their knowledge that affects them directly',
+                'discovered a truth that closes off an option they were counting on',
+                'came across evidence of something that forces them to re-examine the recent past',
+                'learned something that makes it impossible to continue as if they did not know',
+            ],
+        },
+        Social: {
+            positive: [
+                'navigated a difficult group situation in a way that raised how others see them',
+                'became part of a social circle or community that offers something they have been missing',
+                'was publicly supported by someone in a way that changed the room',
+                'managed to shift a social dynamic that had been working against them',
+                'was trusted with something by a group that signals their acceptance',
+                'helped someone publicly in a way that cost them something and earned real respect',
+                'had a social reputation repaired after a period of quiet damage',
+                'forged a connection in a group setting that has real future potential',
+            ],
+            negative: [
+                'was publicly embarrassed or undermined in a way that will be remembered',
+                'lost standing within a group or community they were part of',
+                'found themselves on the wrong side of a social conflict without intending to be',
+                'was excluded or edged out of something they relied on socially',
+                'had a private matter become public within their social environment',
+                'was associated with something or someone in a way that damaged how they are seen',
+                'watched a social environment they depended on fracture around them',
+                'became the focus of group judgment in a way that is hard to recover from quickly',
+            ],
+        },
+    },
+
+    major: {
+        Personal: {
+            positive: [
+                'experienced something that fundamentally changed how they understand themselves',
+                'made an irreversible choice about their own life that they have been circling for years',
+                'escaped something that had been defining and limiting them for a long time',
+                'came through a crisis that forced genuine change and emerged different on the other side',
+                'had a moment of clarity about who they are and what they actually want',
+                'finally let go of something they had been carrying that was costing them everything',
+                'chose themselves in a situation where they had always chosen otherwise before',
+                'survived something that would have broken an earlier version of them',
+            ],
+            negative: [
+                'reached a breaking point that has been building for longer than anyone knew',
+                'made a decision in a moment of crisis that permanently altered the shape of their life',
+                'lost something central to who they are or how they see themselves',
+                'suffered something that will leave a mark they will carry for years',
+                'collapsed under the weight of something they had been managing alone',
+                'did something they cannot take back and will have to live with',
+                'had the version of themselves they showed the world shatter in front of people who mattered',
+                'discovered that something they built their life around is not what they believed it was',
+            ],
+        },
+        Relationship: {
+            positive: [
+                'committed to someone or something in a way that is real and irreversible',
+                'ended a relationship that was slowly destroying them and felt the relief of it',
+                'forgave someone for something significant and felt themselves change because of it',
+                'told someone the most important true thing they have never said and was not destroyed by it',
+                'formed a bond with someone that redefines what they thought connection could feel like',
+                'was chosen by someone in a way that changed what they believe they deserve',
+                'repaired something that everyone including them had written off as finished',
+                'found out that someone has loved or supported them in ways they never knew',
+            ],
+            negative: [
+                'lost someone important from their life in a way that does not have a clean ending',
+                'was betrayed by someone at the exact depth where it does the most damage',
+                'ended something that had been central to their life and felt the full weight of it',
+                'discovered that a relationship they depended on was built on something false',
+                'said or did something in a relationship that cannot be forgiven or undone',
+                'watched someone they love make a choice that separates them',
+                'was left by someone and it reached parts of them they did not know were still open',
+                'had to cut someone out of their life to survive it and is not sure they did the right thing',
+            ],
+        },
+        Status: {
+            positive: [
+                'gained access to something — money, power, freedom, opportunity — that changes their options permanently',
+                'achieved something in their field or life that redefines how they and others see what they are capable of',
+                'escaped a material or legal situation that had them trapped',
+                'was given a position of trust or authority that opens a genuinely new chapter',
+                'received something — inheritance, recognition, offer — that restructures their circumstances',
+                'resolved a long-running practical crisis in a way that actually holds',
+                'attained a degree of stability or security they have not had in years',
+                'was publicly recognized in a way that changes their standing in a permanent and meaningful way',
+            ],
+            negative: [
+                'lost their livelihood, housing, or another material foundation of their life',
+                'received a diagnosis, legal judgment, or official finding that changes everything going forward',
+                'had their reputation destroyed in an environment where reputation is everything',
+                'lost a position they had worked for and the identity that came with it',
+                'found themselves in financial or legal trouble that does not have a simple resolution',
+                'had something they built taken from them in a way that feels definitive',
+                'was stripped of something — a role, a right, a resource — that they depended on',
+                'fell from a standing they worked years to reach and cannot easily reconstruct',
+            ],
+        },
+        Discovery: {
+            positive: [
+                'found out something that rewrites a significant portion of their personal history',
+                'learned a truth that dissolves a source of guilt or shame they have carried for years',
+                'discovered something that vindicates a choice they have been second-guessing',
+                'found out they have been loved, protected, or valued in ways they never understood',
+                'learned something that turns an enemy or adversary into something more complicated',
+                'uncovered something that gives them leverage or safety they have never had before',
+                'discovered that something they mourned is not as lost as they believed',
+                'came across a truth that closes a chapter they could never quite finish',
+            ],
+            negative: [
+                'discovered a truth about someone central to their life that cannot be reconciled with who they thought that person was',
+                'found out something about their past that reframes things they thought they understood',
+                'learned they have been deceived in something fundamental and for a long time',
+                'uncovered something that makes them complicit in something they did not choose',
+                'discovered a truth that makes a relationship, identity, or belief impossible to maintain',
+                'found out something is happening — or has happened — that they cannot protect themselves or others from now that they know',
+                'learned something that requires them to act and the action will cost them',
+                'came across a truth that closes off the version of the future they were working toward',
+            ],
+        },
+        Social: {
+            positive: [
+                'became a figure of genuine trust or authority within a community or group',
+                'was publicly defended or championed in a way that shifted a social landscape around them',
+                'found belonging in a community after a long period of being outside one',
+                'had their social standing restored or elevated after a period of damage',
+                'was instrumental in resolving a conflict within their group and gained lasting credibility for it',
+                'forged an alliance or coalition that gives them real collective power',
+                'was accepted into a circle or institution that meaningfully changes their access and options',
+                'did something publicly that will be remembered and associated with them long-term',
+            ],
+            negative: [
+                'was publicly exposed, condemned, or cast out from a community they depended on',
+                'became a scapegoat in a social conflict in a way that is hard to disprove or escape',
+                'had a private failure or secret become the defining public fact about them',
+                'was abandoned by a group at the moment they most needed collective support',
+                'watched a social structure they were part of collapse and were caught in the wreckage',
+                'was made an example of in front of people whose opinion shapes their world',
+                'lost a network or community that had been their primary source of support and identity',
+                'was involved in a public incident that will follow them for a long time',
+            ],
+        },
+    },
+};
+
+const CATEGORIES = Object.keys(EVENT_POOLS.minor);
 
 // ── State ──────────────────────────────────────────────────
 
@@ -317,6 +663,10 @@ function rollD20() { return Math.floor(Math.random() * 20) + 1; }
 function getScale(roll) { return SCALE.find(s => roll >= s.min && roll <= s.max) || SCALE[0]; }
 function getCategory() { return CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)]; }
 
+function getArchetypeForParams(params) {
+    return pickArchetype(params.scale.id, params.category, params.isPositive) || 'something unexpected happened';
+}
+
 function getMainCharInfo() {
     try {
         const ctx = SillyTavern.getContext();
@@ -507,18 +857,18 @@ function getChatContextForNPC(npc, maxMessages = 30, maxCharsPerMsg = 3000) {
 
 // ── Prompt building ────────────────────────────────────────
 
-const SCALE_DESC = {
-    'minor':   'MINOR — a small, forgettable moment. A habit, a passing mood, a minor errand. Examples: bought groceries, forgot an umbrella, had a bad coffee, daydreamed about someone.',
-    'notable': 'NOTABLE — something worth remembering that shifts their day or week. A real change, not just a moment. Examples: got into an argument that ended badly, received unexpected news, lost something important, made a decision they had been avoiding, ran into someone they did not expect.',
-    'major':   'MAJOR — a life-altering event. Something that changes who they are, what they have, or what their future looks like. This is NOT a slightly unusual moment — it must be genuinely significant. Examples: lost their job, found out about a pregnancy, witnessed a crime, had a serious accident, received a diagnosis, ended or started a relationship that matters, made an irreversible decision.',
-};
+// Pick a random archetype from the pool for this NPC's event
+function pickArchetype(scaleId, category, isPositive) {
+    const pool = EVENT_POOLS[scaleId]?.[category];
+    if (!pool) return null;
+    const list = isPositive ? pool.positive : pool.negative;
+    return list[Math.floor(Math.random() * list.length)];
+}
 
-const CATEGORY_DESC = {
-    'Personal':     'Personal — internal state, body, habits, private life. Something happening TO them or WITHIN them, not involving others much.',
-    'Relationship': 'Relationship — a real interaction or shift with a specific other person. Not just thinking about someone — actual contact, conflict, revelation, change in bond.',
-    'Status':       'Status — change in their material, social, legal, or physical standing. Job, money, housing, health, reputation, possessions.',
-    'Discovery':    'Discovery — finding out something they did not know. Information, a secret, a place, an object, a truth about themselves or someone else.',
-    'Social':       'Social — involvement in a group event, public situation, or community dynamic. Not just being present — actively affected by it.',
+const SCALE_GUIDANCE = {
+    'minor':   'MINOR — a small, forgettable moment. Everyday life. Nothing changes permanently.',
+    'notable': 'NOTABLE — a real shift in their week or situation. Something they will remember. Actual change, not just a mood.',
+    'major':   'MAJOR — life-altering. Irreversible or deeply significant. Health, relationships, livelihood, identity. NOT a slightly unusual day.',
 };
 
 function rollEventParams() {
@@ -535,8 +885,6 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         const { npc, params } = item;
         const history = npc.events.slice(-3).map(e => '- ' + e.text).join('\n') || 'None yet.';
         const impact = params.isPositive ? 'POSITIVE' : 'NEGATIVE';
-        const scaleDesc = SCALE_DESC[params.scale.id] || params.scale.label;
-        const catDesc = CATEGORY_DESC[params.category] || params.category;
         const npcContextResult = getChatContextForNPC(npc, s.maxMessages, s.maxCharsPerMsg);
         const npcContext = npcContextResult.text;
         const lastLoc = npc.lastLocation ? 'Last known location: ' + npc.lastLocation : '';
@@ -577,11 +925,10 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             + 'MENTIONS IN STORY (for context): ' + (npcContext || 'none') + '\n'
             + (inScene
                 ? 'STATUS: THIS CHARACTER IS CURRENTLY IN THE ACTIVE SCENE. DO NOT generate offscreen events.'
-                : 'EVENT REQUIREMENTS (STRICT):\n'
-                    + '  Scale: ' + scaleDesc + '\n'
-                    + '  Category: ' + catDesc + '\n'
-                    + '  Tone: ' + impact + ' (must feel ' + (params.isPositive ? 'like a gain, relief, or positive turn' : 'like a loss, setback, or negative development') + ')\n'
-                    + '  Roll: ' + params.roll + '/20 — calibrate intensity accordingly. Do NOT include this metadata in your response.');
+                : 'EVENT ARCHETYPE: ' + getArchetypeForParams(params) + '\n'
+                    + 'SCALE: ' + SCALE_GUIDANCE[params.scale.id] + '\n'
+                    + 'TONE: ' + impact + ' — must feel ' + (params.isPositive ? 'like a gain, relief, or something opening up.' : 'like a loss, setback, or something closing down.') + '\n'
+                    + 'Write ONE sentence (15-30 words) that applies this archetype to THIS specific character — their personality, situation, relationships, and context. Be concrete and specific to them, not generic.');
     }).join('\n\n');
 
     // Build scene context header from parsed info-block
@@ -603,18 +950,20 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         + 'CURRENT STORY CONTEXT:\n' + (sharedChatContext || 'none') + '\n\n'
         + npcBlocks + '\n\n'
         + 'For each NPC above:\n'
-        + '- If marked [IN SCENE]: write exactly: "[current scene location] | No offscreen events. Currently in scene."\n'
-        + '- If marked [OFFSCREEN]: write exactly ONE sentence (15-25 words) describing what they just did or experienced independently, away from the active scene.\n'
+        + '- If marked [IN SCENE]: write exactly: "[current scene location] | in-scene | No offscreen events. Currently in scene."\n'
+        + '- If marked [OFFSCREEN]: adapt the EVENT ARCHETYPE to this specific character and write ONE concrete sentence (15-30 words).\n'
         + 'Requirements for [OFFSCREEN] NPCs:\n'
-        + '- Match the event requirements (impact/scale/type) listed for that NPC\n'
-        + '- Be specific to their personality and situation\n'
-        + '- Do NOT start with their name\n'
-        + '- No dialogue, no poetic language\n\n'
-        + 'Also determine a short location name (1-5 words) for where each OFFSCREEN NPC currently is.\n\n'
+        + '- Apply the archetype to their specific personality, relationships, and situation — not generically\n'
+        + '- Match the SCALE (minor = trivial moment, notable = real shift in their situation, major = life-altering and irreversible)\n'
+        + '- Match the TONE (positive = something opens up or improves, negative = something closes down or hurts)\n'
+        + '- Do NOT start with their name. No dialogue. No poetic language.\n\n'
+        + 'Also self-report: a short location (1-5 words) and the actual scale of what you wrote (minor/notable/major).\n\n'
         + 'Respond with ONLY this format, one line per NPC:\n'
-        + npcList.map((item, i) => 'NPC' + (i + 1) + ': [location] | [event sentence or "No offscreen events. Currently in scene."]').join('\n') + '\n'
-        + 'IMPORTANT: Do NOT add any notes, labels, or metadata after the sentence. No *(Scale:...)*, no explanations, nothing except the format above.\n'        + 'Example offscreen: NPC1: the marketplace | She haggled bitterly over a bag of spices with an impatient merchant.\n'
-        + 'Example in-scene: NPC2: Тюменское ГУВД, кабинет Парфёнова | No offscreen events. Currently in scene.';
+        + npcList.map((item, i) => 'NPC' + (i + 1) + ': [location] | [minor/notable/major] | [event sentence]').join('\n') + '\n'
+        + 'Example offscreen: NPC1: городской рынок | minor | Bargained longer than usual over fabric and left without buying anything.\n'
+        + 'Example major: NPC2: больница | major | Was told the results came back positive and sat in the corridor for an hour unable to move.\n'
+        + 'Example in-scene: NPC3: Тюменское ГУВД, кабинет Парфёнова | in-scene | No offscreen events. Currently in scene.\n'
+        + 'IMPORTANT: exactly three pipe-separated fields per line. No extra text after the sentence.';
 
     console.log('[WildOffscreen] Batch prompt for', npcList.length, 'NPCs, userContent length:', userContent.length);
 
@@ -623,14 +972,13 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             role: 'system',
             content: 'You write brief offscreen event summaries for story characters. '
                 + 'Dry, specific, one sentence per character. No names at sentence start. No dialogue. No poetic language. '
-                + 'CRITICAL RULE 1: Each NPC is marked [IN SCENE] or [OFFSCREEN]. '
-                + 'For [IN SCENE] characters: write exactly: "[location] | No offscreen events. Currently in scene." — no exceptions. '
-                + 'For [OFFSCREEN] characters: generate one offscreen event matching the EVENT REQUIREMENTS exactly. '
-                + 'CRITICAL RULE 2: Scale is MANDATORY. MINOR = trivial moment. NOTABLE = real shift in their day/situation. MAJOR = life-changing — must be genuinely significant, irreversible or deeply impactful. If you write a MAJOR event that sounds like something that happens every day, you have failed. '
-                + 'CRITICAL RULE 3: Category is MANDATORY. Match the category exactly — Personal is internal/private, Relationship requires another person present, Status changes their standing, Discovery means new information, Social means group/public context. '
-                + 'CRITICAL RULE 4: Do NOT downgrade the scale. If the requirement says MAJOR, write something major. Do not write a minor inconvenience and call it major. '
-                + 'CRITICAL RULE 5: No repetition. Every event must be completely different from RECENT OFFSCREEN EVENTS in theme, action, and phrasing. '
-                + 'CRITICAL RULE 6: Follow the exact output format. One line per NPC, no extra commentary.',
+                + 'RULE 1: Each NPC is marked [IN SCENE] or [OFFSCREEN]. '
+                + '[IN SCENE] = write exactly: "location | in-scene | No offscreen events. Currently in scene." '
+                + '[OFFSCREEN] = adapt the EVENT ARCHETYPE to this specific character and write one concrete sentence. '
+                + 'RULE 2: The archetype is a direction, not a script. Translate it into something specific to this person — their life, job, relationships, habits, fears. '
+                + 'RULE 3: Scale is self-reported by you in the second field. Be honest — if what you wrote is minor, say minor. If it is genuinely life-altering, say major. Do not inflate or deflate. '
+                + 'RULE 4: No repetition with RECENT OFFSCREEN EVENTS — different theme, different action, different phrasing every time. '
+                + 'RULE 5: Exactly three pipe-separated fields per line. Nothing else.',
         },
         { role: 'user', content: userContent },
     ];
@@ -650,27 +998,38 @@ function parseBatchResponse(text, count) {
 
         let raw = match[1].trim().replace(/^["']|["']$/g, '').trim();
 
+        // Strip any trailing model metadata
+        raw = raw.replace(/\s*\*\(Scale:[^)]*\)\*/g, '').trim();
+        raw = raw.replace(/\s*\[OFFSCREEN\]|\s*\[IN SCENE\]/gi, '').trim();
+
+        // Split on pipes — expect: location | scale | sentence
+        const pipes = raw.split('|').map(p => p.trim());
+
         let location = 'unknown';
+        let reportedScale = null;
         let sentence = raw;
 
-        const pipeIdx = raw.indexOf('|');
-        if (pipeIdx > 0 && pipeIdx < 120) {
-            const maybeLocation = raw.slice(0, pipeIdx).trim();
-            const maybeEvent = raw.slice(pipeIdx + 1).trim();
-            if (maybeLocation.length > 0 && maybeLocation.length < 100 && maybeEvent.length > 5) {
-                location = maybeLocation;
-                sentence = maybeEvent;
+        if (pipes.length >= 3) {
+            location = pipes[0] || 'unknown';
+            const scalePart = pipes[1].toLowerCase();
+            if (/in-scene|in scene/.test(scalePart)) {
+                results.push({ location, text: pipes.slice(2).join('|').trim(), inScene: true, reportedScale: 'in-scene' });
+                continue;
             }
+            reportedScale = /\bminor\b/.test(scalePart) ? 'minor'
+                          : /\bnotable\b/.test(scalePart) ? 'notable'
+                          : /\bmajor\b/.test(scalePart) ? 'major'
+                          : null;
+            sentence = pipes.slice(2).join('|').trim();
+        } else if (pipes.length === 2) {
+            // Fallback: old 2-field format location | sentence
+            location = pipes[0];
+            sentence = pipes[1];
         }
 
-        // Strip model-appended metadata like *(Scale: MAJOR / Category: Social / Tone: POSITIVE)*
-        sentence = sentence.replace(/\s*\*\(Scale:[^)]*\)\*/g, '').trim();
-        sentence = sentence.replace(/\s*\[OFFSCREEN\]|\s*\[IN SCENE\]/gi, '').trim();
-
-        // Detect "currently in scene" marker — do not treat as a real event
-        const inSceneMarker = /no offscreen events|currently in scene/i.test(sentence);
-        if (inSceneMarker) {
-            results.push({ location, text: sentence, inScene: true });
+        // Detect in-scene by text even if format was off
+        if (/no offscreen events|currently in scene/i.test(sentence)) {
+            results.push({ location, text: sentence, inScene: true, reportedScale: 'in-scene' });
             continue;
         }
 
@@ -678,7 +1037,7 @@ function parseBatchResponse(text, count) {
         const first = sentence.match(/^[^.!?]+[.!?]/);
         if (first && first[0].length > 10) sentence = first[0].trim();
 
-        results.push(sentence.length >= 10 ? { location, text: sentence, inScene: false } : null);
+        results.push(sentence.length >= 10 ? { location, text: sentence, inScene: false, reportedScale } : null);
     }
     return results;
 }
@@ -738,7 +1097,7 @@ async function generateEventsForAllNPCs(npcs) {
         const event = {
             text: result.text,
             location: result.location,
-            scale: params.scale.id,
+            scale: result.reportedScale || params.scale.id,
             category: params.category,
             positive: params.isPositive,
             timestamp: Date.now(),
@@ -747,8 +1106,21 @@ async function generateEventsForAllNPCs(npcs) {
         npc.events.push(event);
         if (npc.events.length > s.maxEvents) npc.events = npc.events.slice(-s.maxEvents);
 
-        // No auto-promote — user pins facts manually via 📌 button
+        // Auto-promote if model self-reported this as MAJOR
         if (!npc.permanentFacts) npc.permanentFacts = [];
+        if (result.reportedScale === 'major') {
+            const alreadyStored = npc.permanentFacts.some(f => f.text === result.text);
+            if (!alreadyStored) {
+                npc.permanentFacts.push({
+                    text: result.text,
+                    category: params.category,
+                    positive: params.isPositive,
+                    timestamp: Date.now(),
+                    auto: true,
+                });
+                console.log('[WildOffscreen] Auto-promoted self-reported MAJOR to permanentFacts:', npc.name);
+            }
+        }
 
         // Update last known location only for offscreen NPCs
         if (result.location && result.location !== 'unknown') {
