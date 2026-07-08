@@ -747,22 +747,8 @@ async function generateEventsForAllNPCs(npcs) {
         npc.events.push(event);
         if (npc.events.length > s.maxEvents) npc.events = npc.events.slice(-s.maxEvents);
 
-        // Auto-promote MAJOR events to permanentFacts
+        // No auto-promote — user pins facts manually via 📌 button
         if (!npc.permanentFacts) npc.permanentFacts = [];
-        if (params.scale.id === 'major') {
-            const factText = result.text;
-            const alreadyStored = npc.permanentFacts.some(f => f.text === factText);
-            if (!alreadyStored) {
-                npc.permanentFacts.push({
-                    text: factText,
-                    category: params.category,
-                    positive: params.isPositive,
-                    timestamp: Date.now(),
-                    auto: true,
-                });
-                console.log('[WildOffscreen] Auto-promoted MAJOR event to permanentFacts for', npc.name);
-            }
-        }
 
         // Update last known location only for offscreen NPCs
         if (result.location && result.location !== 'unknown') {
@@ -956,7 +942,7 @@ function renderNPCList() {
             evContainer.append('<div style="font-size:0.78em;font-weight:700;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;margin: 6px 0 3px 0;">📌 Permanent facts</div>');
             facts.forEach((fact, fi) => {
                 const fcolor = fact.positive ? '#66bb6a' : '#ef5350';
-                const autoTag = fact.auto ? ' <span style="opacity:0.4;font-size:0.85em;">(auto)</span>' : '';
+                const autoTag = '';
                 const fRow = $(`
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 6px;border-radius:3px;background:color-mix(in srgb, var(--SmartThemeQuoteColor) 8%, transparent);border-left:2px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);">
                         <div style="flex:1;font-size:0.82em;">
