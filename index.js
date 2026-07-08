@@ -260,7 +260,7 @@ async function callAPI(messages) {
         messages,
         model: profile.model || '',
         temperature: 0.85,
-        max_tokens: 120,
+        max_tokens: 200,
         stream: false,
         chat_completion_source: cc_source,
     };
@@ -327,7 +327,7 @@ function getCategory() { return CATEGORIES[Math.floor(Math.random() * CATEGORIES
  * Takes up to maxMessages most recent matches, each truncated to maxCharsPerMsg.
  * Falls back to last 5 messages if no mentions found.
  */
-function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 300) {
+function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 2000) {
     try {
         const ctx = SillyTavern.getContext();
         const chat = ctx.chat || [];
@@ -358,7 +358,7 @@ function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 300) {
         }
 
         return selected
-            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + cleanMsg(m).slice(0, maxCharsPerMsg))
+            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + cleanMsg(m).slice(0, maxCharsPerMsg).trim())
             .join('\n');
     } catch (e) {
         console.warn('[WildOffscreen] getChatContextForNPC error:', e.message);
@@ -368,7 +368,7 @@ function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 300) {
 
 function buildMessages(npc, scale, category, isPositive) {
     const history = npc.events.slice(-3).map(e => '- ' + e.text).join('\n') || 'None yet.';
-    const desc = npc.description.slice(0, 600);
+    const desc = npc.description.slice(0, 6000);
     const impact = isPositive ? 'positive' : 'negative';
     const recentChat = getChatContextForNPC(npc.name);
 
