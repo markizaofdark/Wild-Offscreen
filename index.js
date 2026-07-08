@@ -508,6 +508,21 @@ async function saveNPCs(npcs) {
 }
 
 /** Clear events+facts+location for all NPCs in current chat, keep identity */
+async function deleteNPC(name) {
+    const s = getSettings();
+    const botKey = getBotKey();
+    const chatKey = getChatKey();
+    if (!s.npcData?.[botKey]) return;
+    // Remove from identity store
+    if (s.npcData[botKey].__npcs) delete s.npcData[botKey].__npcs[name];
+    // Remove from all chat stores for this bot
+    for (const ck of Object.keys(s.npcData[botKey])) {
+        if (ck === '__npcs') continue;
+        if (s.npcData[botKey][ck]?.[name]) delete s.npcData[botKey][ck][name];
+    }
+    saveSettingsDebounced();
+}
+
 async function clearChatData() {
     const s = getSettings();
     const botKey = getBotKey();
@@ -1553,18 +1568,31 @@ function renderNPCList() {
             evContainer.slideToggle(150);
         });
         card.find('.wo_btn_toggle').on('click', async () => {
-            const n = getNPCs(); n[key].enabled = !n[key].enabled;
-            await saveNPCs(n); renderNPCList(); updateInjection();
+            const s = getSettings();
+            const botKey = getBotKey();
+            if (s.npcData?.[botKey]?.__npcs?.[key]) {
+                s.npcData[botKey].__npcs[key].enabled = !s.npcData[botKey].__npcs[key].enabled;
+                saveSettingsDebounced();
+                renderNPCList(); updateInjection();
+            }
         });
         card.find('.wo_btn_clear').on('click', async () => {
             if (!confirm(`Clear all events for ${key}?`)) return;
-            const n = getNPCs(); n[key].events = [];
-            await saveNPCs(n); renderNPCList(); updateInjection();
+            const s = getSettings();
+            const botKey = getBotKey();
+            const chatKey = getChatKey();
+            if (s.npcData?.[botKey]?.[chatKey]?.[key]) {
+                s.npcData[botKey][chatKey][key].events = [];
+                s.npcData[botKey][chatKey][key].permanentFacts = [];
+                s.npcData[botKey][chatKey][key].lastLocation = null;
+                saveSettingsDebounced();
+            }
+            renderNPCList(); updateInjection();
         });
         card.find('.wo_btn_delete').on('click', async () => {
             if (!confirm(`Remove ${key} from tracking?`)) return;
-            const n = getNPCs(); delete n[key];
-            await saveNPCs(n); renderNPCList(); updateInjection();
+            await deleteNPC(key);
+            renderNPCList(); updateInjection();
         });
         container.append(card);
     }
@@ -1591,8 +1619,8 @@ function buildUI() {
             <div id="wo_book_info" class="wo_book_info">—</div>
             <label><small>Scan entries at position</small></label>
             <select id="wo_scan_position" class="text_pole" style="margin-bottom:6px;">
-                <option value="before_char">before_char (character cards)</option>
-                <option value="after_char">after_char (relationships, notes)</option>
+                <option value="before_char">before_char</option>
+                <option value="after_char">after_char</option>
             </select>
             <div class="wo_actions">
                 <button id="wo_scan" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Scan Lorebook</button>
