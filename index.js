@@ -744,9 +744,6 @@ function parseBatchResponse(text, count) {
     return results;
 }
 
-/**
- * Generate events for ALL enabled NPCs in a single API call.
- */
 async function generateEventsForAllNPCs(npcs) {
     const keys = Object.keys(npcs).filter(k => npcs[k].enabled);
     if (!keys.length) return;
@@ -791,7 +788,8 @@ async function generateEventsForAllNPCs(npcs) {
     }
 }
 
-async function runGenerationCycle() {
+async function runGenerationCycle() 
+{
     const npcs = getNPCs();
     const keys = Object.keys(npcs).filter(k => npcs[k].enabled);
     if (!keys.length) return;
@@ -828,7 +826,8 @@ async function runGenerationCycle() {
 
 // ── Injection ──────────────────────────────────────────────
 
-function buildInjectionText(npcs, injectMax) {
+function buildInjectionText(npcs, injectMax) 
+{
     const entries = Object.values(npcs).filter(n => n.enabled && n.events.length > 0);
     if (!entries.length) return '';
     let filtered = entries;
@@ -850,7 +849,8 @@ function buildInjectionText(npcs, injectMax) {
         + lines.join('\n') + '\n[/OFF-SCREEN NPC UPDATES]';
 }
 
-function updateInjection() {
+function updateInjection() 
+{
     const s = getSettings();
     const text = s.enabled ? buildInjectionText(getNPCs(), s.injectMaxMessages) : '';
     setExtensionPrompt(EXT, text, INJECTION_POSITION, 0, false, 0);
@@ -858,7 +858,8 @@ function updateInjection() {
 
 // ── Generation hook ────────────────────────────────────────
 
-function onGenerationStarted() {
+function onGenerationStarted() 
+{
     const s = getSettings();
     if (!s.enabled) return;
     msgCounter++;
@@ -898,15 +899,13 @@ function renderNPCList()
         const evContainer = card.find('.wo_npc_events');
 
 
-        if (!npc.events.length) 
-            {
+        if (!npc.events.length) {
             evContainer.append('<div class="wo_no_events">No events yet.</div>');
-        } 
-        else 
-            {
+        } else {
             if (npc.lastLocation) {
                 evContainer.append('<div class="wo_npc_location">📍 ' + npc.lastLocation + '</div>');
             }
+
             const reversedEvents = [...npc.events].reverse();
             
             for (let i = 0; i < reversedEvents.length; i++) {
@@ -931,6 +930,7 @@ function renderNPCList()
                 evContainer.append(evRow);
             }
 
+            // Обработчик удаления
             evContainer.find('.wo_btn_delete_event').on('click', async function (e) {
                 e.stopPropagation();
                 
@@ -948,17 +948,6 @@ function renderNPCList()
             });
         }
 
-        for (const ev of [...npc.events].reverse()) {
-            const color = ev.positive ? '#66bb6a' : '#ef5350';
-            const locTag = ev.location && ev.location !== 'unknown' ? '<span class="wo_event_loc">📍 ' + ev.location + '</span> ' : '';
-            const evText = typeof ev.text === 'string' ? ev.text : String(ev.text || '');
-            evContainer.append('<div class="wo_event">'
-                + '<span class="wo_event_meta" style="color:' + color + '">' + (ev.positive ? '▲' : '▼') + ' ' + ev.scale.toUpperCase() + ' · ' + ev.category + '</span>'
-                + locTag
-                + '<div class="wo_event_text">' + evText + '</div>'
-                + '</div>');
-            }
-        }
         card.find('.wo_npc_header').on('click', function (e) {
             if ($(e.target).closest('.wo_npc_actions').length) return;
             evContainer.slideToggle(150);
@@ -1018,8 +1007,10 @@ function renderNPCList()
         });
         container.append(card);
     }
+}
 
-function buildUI() {
+function buildUI() 
+{
     const html = `
     <div id="wo_panel" class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
@@ -1069,7 +1060,8 @@ function buildUI() {
 
 // ── Init ───────────────────────────────────────────────────
 
-jQuery(async () => {
+jQuery(async () => 
+{
     buildUI();
     const s = getSettings();
 
@@ -1268,4 +1260,5 @@ jQuery(async () => {
     });
 
     updateInjection();
-});
+}
+);
