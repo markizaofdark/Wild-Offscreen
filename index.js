@@ -375,8 +375,7 @@ function buildSearchRegexes(npc) {
 
 // ── Chat context ───────────────────────────────────────────
 
-function getChatContextForNPC(npc, maxMessages = 8, maxCharsPerMsg = 2000) {
-    const npcObj = typeof npc === 'string' ? { name: npc, searchKeys: [] } : npc;
+function getChatContextForNPC(npc, maxMessages = 30, maxCharsPerMsg = 3000) {    const npcObj = typeof npc === 'string' ? { name: npc, searchKeys: [] } : npc;
     const npcName = npcObj.name;
 
     const debugInfo = {
@@ -417,7 +416,7 @@ function getChatContextForNPC(npc, maxMessages = 8, maxCharsPerMsg = 2000) {
             debugInfo.usedMessages = selected.length;
             debugInfo.fallback = false;
         } else {
-            selected = nonSystem.slice(-5);
+            selected = nonSystem.slice(-20); // Увеличиваем до 20
             debugInfo.usedMessages = selected.length;
             debugInfo.fallback = true;
         }
@@ -551,15 +550,15 @@ async function generateEventsForAllNPCs(npcs) {
 
     const mainCharInfo = getMainCharInfo();
     const sharedChat = (() => {
-        try {
-            const ctx = SillyTavern.getContext();
-            return (ctx.chat || [])
-                .filter(m => !m.is_system && m.mes)
-                .slice(-5)
-                .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + m.mes.replace(/<[^>]+>/g, '').trim().slice(0, 500))
-                .join('\n');
-        } catch(e) { return ''; }
-    })();
+    try {
+        const ctx = SillyTavern.getContext();
+        return (ctx.chat || [])
+            .filter(m => !m.is_system && m.mes)
+            .slice(-20)
+            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + m.mes.replace(/<[^>]+>/g, '').trim().slice(0, 3000)) // 3000 символов на сообщение
+            .join('\n');
+    } catch(e) { return ''; }
+})();
 
     const npcList = keys.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
 
