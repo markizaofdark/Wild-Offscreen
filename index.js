@@ -499,7 +499,8 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext) {
             role: 'system',
             content: 'You write brief offscreen event summaries for story characters. '
                 + 'Dry, specific, one sentence per character. No names at sentence start. No dialogue. '
-                + 'CRITICAL: Absolutely DO NOT repeat the same actions, phrasings, or themes from the RECENT OFFSCREEN EVENTS. Every new event must be completely unique and distinct.',
+                + 'CRITICAL RULE 1: First, carefully check the recent chat history. If a character is CURRENTLY actively participating in the scene with the user, DO NOT invent offscreen events for them. Instead, just write: "No offscreen events. Currently in scene." and note their location. '
+                + 'CRITICAL RULE 2: For characters who are truly offscreen, absolutely DO NOT repeat the same actions, phrasings, or themes from the RECENT OFFSCREEN EVENTS. Every new event must be completely unique and distinct.',
         },
         { role: 'user', content: userContent },
     ];
