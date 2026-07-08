@@ -342,42 +342,61 @@ function getMainCharInfo() {
  * Takes up to maxMessages most recent matches, each truncated to maxCharsPerMsg.
  * Falls back to last 5 messages if no mentions found.
  */
+/**
+ * Returns { text, debug } — context string + debug info object
+ */
 function getChatContextForNPC(npcName, maxMessages = 8, maxCharsPerMsg = 2000) {
+    const debugInfo = {
+        npc: npcName,
+        totalMessages: 0,
+        nonSystemMessages: 0,
+        searchTerms: [],
+        mentionCount: 0,
+        usedMessages: 0,
+        fallback: false,
+        error: null,
+    };
+
     try {
         const ctx = SillyTavern.getContext();
         const chat = ctx.chat || [];
+        debugInfo.totalMessages = chat.length;
 
-        // Build search terms from NPC name — all parts (first name, last name, etc.)
+        const nonSystem = chat.filter(m => !m.is_system && m.mes);
+        debugInfo.nonSystemMessages = nonSystem.length;
+
         const nameParts = npcName.trim().split(/\s+/).filter(p => p.length > 2);
         const searchTerms = [npcName.toLowerCase(), ...nameParts.map(p => p.toLowerCase())];
+        debugInfo.searchTerms = searchTerms;
 
         const cleanMsg = (m) => m.mes.replace(/<[^>]+>/g, '').trim();
 
-        // Find all non-system messages mentioning this NPC
-        const mentions = chat
-            .filter(m => !m.is_system && m.mes)
-            .filter(m => {
-                const lower = cleanMsg(m).toLowerCase();
-                return searchTerms.some(term => lower.includes(term));
-            });
+        const mentions = nonSystem.filter(m => {
+            const lower = cleanMsg(m).toLowerCase();
+            return searchTerms.some(term => lower.includes(term));
+        });
+        debugInfo.mentionCount = mentions.length;
 
         let selected;
         if (mentions.length > 0) {
-            // Take last maxMessages mentions
             selected = mentions.slice(-maxMessages);
-            console.log('[WildOffscreen] Found', mentions.length, 'messages mentioning', npcName, '— using last', selected.length);
+            debugInfo.usedMessages = selected.length;
+            debugInfo.fallback = false;
         } else {
-            // Fallback: last 5 messages (location/mood context)
-            selected = chat.filter(m => !m.is_system && m.mes).slice(-5);
-            console.log('[WildOffscreen] No mentions of', npcName, '— using last 5 messages as fallback');
+            selected = nonSystem.slice(-5);
+            debugInfo.usedMessages = selected.length;
+            debugInfo.fallback = true;
         }
 
-        return selected
+        const text = selected
             .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + cleanMsg(m).slice(0, maxCharsPerMsg).trim())
             .join('\n');
+
+        return { text, debug: debugInfo };
     } catch (e) {
+        debugInfo.error = e.message;
         console.warn('[WildOffscreen] getChatContextForNPC error:', e.message);
-        return '';
+        return { text: '', debug: debugInfo };
     }
 }
 
@@ -417,12 +436,13 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext) {
         const impact = params.isPositive ? 'POSITIVE' : 'NEGATIVE';
         const scaleDesc = SCALE_DESC[params.scale.id] || params.scale.label;
         const catDesc = CATEGORY_DESC[params.category] || params.category;
-        const npcContext = getChatContextForNPC(npc.name);
+        const npcContextResult = getChatContextForNPC(npc.name);
+        const npcContext = npcContextResult.text;
 
         return '--- NPC ' + (i + 1) + ': ' + npc.name + ' ---\n'
             + 'DESCRIPTION: ' + npc.description.slice(0, 3000) + '\n'
             + 'RECENT OFFSCREEN EVENTS (do not repeat): ' + history + '\n'
-            + 'MENTIONS IN STORY (for location/context): ' + (npcContext || 'none') + '\n'
+            + 'MENTIONS IN STORY (for location/context): ' + (npcContext || 'none') + '\n'  
             + 'EVENT REQUIREMENTS: ' + impact + ' | ' + scaleDesc + ' | ' + catDesc;
     }).join('\n\n');
 
@@ -662,7 +682,9 @@ function buildUI() {
             </div>
             <div class="wo_actions" style="margin-top:4px;">
                 <input type="button" id="wo_generate_now" class="menu_button" value="⚡ Generate Now" />
+                <input type="button" id="wo_debug_btn" class="menu_button" value="🔎 Debug" />
             </div>
+            <div id="wo_debug_panel" class="wo_debug_out" style="display:none;"></div>
 
             <hr>
 
@@ -779,6 +801,100 @@ jQuery(async () => {
             return;
         }
         await runGenerationCycle();
+    });
+
+    // ── Debug button ──
+    $('#wo_debug_btn').on('click', () => {
+        const panel = $('#wo_debug_panel');
+        panel.empty().show();
+
+        const npcs = getNPCs();
+        const keys = Object.keys(npcs);
+        const s = getSettings();
+        const mainInfo = getMainCharInfo();
+
+        // Header
+        panel.append('<div class="wo_debug_title">🔎 Wild Offscreen Debug</div>');
+
+        // Settings
+        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Settings</div>');
+        panel.append('<div class="wo_debug_entry">'
+            + 'Profile: <code>' + (s.connectionProfile || 'default') + '</code><br>'
+            + 'Trigger every: <code>' + s.triggerEvery + ' msgs</code><br>'
+            + 'Max events/NPC: <code>' + s.maxEvents + '</code>'
+            + '</div>');
+
+        // Main char
+        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Main character (bot)</div>');
+        panel.append('<div class="wo_debug_entry">'
+            + (mainInfo ? '<code>' + mainInfo.slice(0, 200) + (mainInfo.length > 200 ? '…' : '') + '</code>' : '<span style="color:#ef5350">Not found</span>')
+            + '</div>');
+
+        // Chat stats
+        try {
+            const ctx = SillyTavern.getContext();
+            const chat = ctx.chat || [];
+            const nonSystem = chat.filter(m => !m.is_system && m.mes);
+            panel.append('<div class="wo_debug_title" style="margin-top:8px;">Chat</div>');
+            panel.append('<div class="wo_debug_entry">'
+                + 'Total messages: <code>' + chat.length + '</code><br>'
+                + 'Non-system: <code>' + nonSystem.length + '</code>'
+                + '</div>');
+        } catch(e) {
+            panel.append('<div class="wo_debug_entry" style="color:#ef5350">Chat error: ' + e.message + '</div>');
+        }
+
+        // Per-NPC context debug
+        if (!keys.length) {
+            panel.append('<div class="wo_debug_entry" style="color:#ef5350">No NPCs registered.</div>');
+        } else {
+            panel.append('<div class="wo_debug_title" style="margin-top:8px;">NPC context search</div>');
+            for (const key of keys) {
+                const npc = npcs[key];
+                const result = getChatContextForNPC(npc.name);
+                const d = result.debug;
+                const statusColor = d.mentionCount > 0 ? '#66bb6a' : '#ffa726';
+                panel.append('<div class="wo_debug_entry">'
+                    + '<b>' + npc.name + '</b>'
+                    + (npc.enabled ? '' : ' <span style="color:#ef5350">[disabled]</span>') + '<br>'
+                    + 'Search terms: <code>' + d.searchTerms.join(', ') + '</code><br>'
+                    + 'Chat scanned: <code>' + d.nonSystemMessages + ' msgs</code><br>'
+                    + 'Mentions found: <code style="color:' + statusColor + '">' + d.mentionCount + '</code><br>'
+                    + 'Used in prompt: <code>' + d.usedMessages + ' msgs</code>'
+                    + (d.fallback ? ' <span style="color:#ffa726">(fallback — no mentions)</span>' : '') + '<br>'
+                    + 'Lorebook desc: <code>' + npc.description.length + ' chars</code><br>'
+                    + 'Stored events: <code>' + npc.events.length + '</code>'
+                    + (d.error ? '<br><span style="color:#ef5350">Error: ' + d.error + '</span>' : '')
+                    + '</div>');
+            }
+        }
+
+        // Batch prompt preview
+        panel.append('<div class="wo_debug_title" style="margin-top:8px;">Batch prompt preview (first 600 chars)</div>');
+        try {
+            const enabledNpcs = keys.filter(k => npcs[k].enabled);
+            if (enabledNpcs.length) {
+                const npcList = enabledNpcs.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
+                const sharedChat = (() => {
+                    try {
+                        const ctx = SillyTavern.getContext();
+                        return (ctx.chat || []).filter(m => !m.is_system && m.mes).slice(-5)
+                            .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + m.mes.replace(/<[^>]+>/g, '').trim().slice(0, 500))
+                            .join('\n');
+                    } catch(e) { return ''; }
+                })();
+                const msgs = buildBatchMessages(npcList, mainInfo, sharedChat);
+                const preview = msgs[1].content.slice(0, 600);
+                panel.append('<div class="wo_debug_entry"><code style="word-break:break-all;font-size:0.78em;">'
+                    + preview.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    + (msgs[1].content.length > 600 ? '\n…(' + msgs[1].content.length + ' chars total)' : '')
+                    + '</code></div>');
+            } else {
+                panel.append('<div class="wo_debug_entry" style="color:#ffa726">No enabled NPCs to preview.</div>');
+            }
+        } catch(e) {
+            panel.append('<div class="wo_debug_entry" style="color:#ef5350">Preview error: ' + e.message + '</div>');
+        }
     });
 
     // ── Hooks ──
