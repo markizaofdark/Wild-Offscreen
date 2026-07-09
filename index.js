@@ -1884,6 +1884,8 @@ async function runGenerationCycle() {
 
     isGenerating = true;
     $('#wo_status').text('Generating offscreen events…').show();
+    $('#wo_generate_now').prop('disabled', true).find('i').removeClass('fa-bolt').addClass('fa-spinner fa-spin');
+    $('#wo_generate_now span').text('Generating...');
 
     try {
         // Snapshot event counts before generation
@@ -1929,6 +1931,8 @@ async function runGenerationCycle() {
     } finally {
         isGenerating = false;
         $('#wo_status').text('').hide();
+        $('#wo_generate_now').prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-bolt');
+        $('#wo_generate_now span').text('Generate Now');
     }
 }
 
@@ -1946,11 +1950,22 @@ function buildInjectionText(npcs, injectMax) {
     if (!filtered.length) return '';
     const lines = filtered.map(npc => {
         const loc = npc.lastLocation || 'unknown';
-        // Inject only last event to keep context size small
-        const last = npc.events[npc.events.length - 1];
-        const evLoc = last && last.location && last.location !== loc ? ' @' + last.location : '';
-        const evLine = last ? '  [' + (last.positive ? '+' : '-') + last.scale.toUpperCase() + evLoc + '] ' + last.text : '  —';
-        return npc.name + ' (' + loc + '): ' + evLine.trim();
+        const facts = Array.isArray(npc.permanentFacts) ? npc.permanentFacts : [];
+        const allLines = [];
+
+        // Permanent facts first (most important, always included)
+        for (const f of facts) {
+            allLines.push('  [FACT] ' + f.text);
+        }
+
+        // Then all stored events (newest last)
+        for (const ev of npc.events) {
+            const evLoc = ev.location && ev.location !== loc ? ' @' + ev.location : '';
+            allLines.push('  [' + (ev.positive ? '+' : '-') + ev.scale.toUpperCase() + evLoc + '] ' + ev.text);
+        }
+
+        if (!allLines.length) allLines.push('  —');
+        return npc.name + ' (' + loc + '):\n' + allLines.join('\n');
     });
     const s2 = getSettings();
     const activeIntros = s2.activeIntros || {};
@@ -2069,6 +2084,18 @@ function renderNPCList() {
         container.append('<div class="wo_empty">No NPCs registered. Scan or load a lorebook.</div>');
         return;
     }
+
+    // Determine in-scene status for each NPC (for dot indicator)
+    const _sceneInfo = parseSceneInfo();
+    const _sceneChars = (_sceneInfo && Array.isArray(_sceneInfo.characters)) ? _sceneInfo.characters : [];
+    for (const key of keys) {
+        const nl = key.toLowerCase();
+        npcs[key]._inScene = _sceneChars.some(c => {
+            const cl = (c || '').toLowerCase().trim();
+            return cl === nl || cl.includes(nl);
+        });
+    }
+
     for (const key of keys) {
         const npc = npcs[key];
         const count = npc.events.length;
@@ -2076,6 +2103,7 @@ function renderNPCList() {
         const card = $(`
         <div class="wo_npc_card ${npc.enabled ? '' : 'wo_npc_disabled'}" data-name="${key}">
             <div class="wo_npc_header">
+                <span class="wo_npc_status_dot" title="${npc._inScene ? 'In scene' : 'Offscreen'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:${npc._inScene ? '#66bb6a' : '#ffa726'};box-shadow:0 0 4px ${npc._inScene ? '#66bb6a' : '#ffa726'};flex-shrink:0;"></span>
                 <span class="wo_npc_name">${npc.name}${npc.pendingIntro ? ' <span class="wo_intro_badge">NEW</span>' : ''}</span>
                 <span class="wo_npc_count">${npc.lastLocation ? '<i class="fa-solid fa-location-dot" style="font-size:0.8em;margin-right:3px;"></i>' : ''}${count} event${count !== 1 ? 's' : ''}</span>
                 <div class="wo_npc_actions">
@@ -2331,10 +2359,11 @@ function buildUI() {
                     <div id="wo_npc_list" class="wo_npc_list"></div>
 
                     <div class="wo_actions" style="margin-top:6px;">
-                        <button id="wo_generate_now" class="menu_button"><i class="fa-solid fa-bolt"></i> Generate Now</button>
+                        <button id="wo_generate_now" class="menu_button"><i class="fa-solid fa-bolt"></i> <span>Generate Now</span></button>
                         <button id="wo_scan" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Scan Lorebook</button>
                     </div>
                     <div class="wo_actions" style="margin-top:4px;">
+                        <button id="wo_toggle_all_cards" class="menu_button" title="Expand / Collapse all"><i class="fa-solid fa-arrows-up-down"></i> Toggle All</button>
                         <button id="wo_clear_all_events" class="menu_button"><i class="fa-solid fa-eraser"></i> Clear All Events</button>
                         <button id="wo_delete_all_npcs" class="menu_button wo_btn_danger"><i class="fa-solid fa-trash-can"></i> Remove All</button>
                     </div>
@@ -2393,13 +2422,27 @@ function buildUI() {
                     </select>
                     <div id="wo_edit_npc_panel" style="display:none;">
                         <label><small>Notes <span style="opacity:0.5;">(always sent to AI, overrides lorebook if contradicts)</span></small></label>
-                        <textarea id="wo_edit_notes" class="text_pole" placeholder="e.g. currently pregnant, in conflict with Parfyonov..." rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
+                        <textarea id="wo_edit_notes" class="text_pole" rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
                         <label><small>Description</small></label>
                         <textarea id="wo_edit_desc" class="text_pole" rows="5" style="resize:vertical;margin-bottom:4px;"></textarea>
                         <div class="wo_actions">
                             <button id="wo_edit_save" class="menu_button"><i class="fa-solid fa-floppy-disk"></i> Save</button>
                             <button id="wo_edit_reset" class="menu_button" style="opacity:0.6;" title="Restore lorebook description"><i class="fa-solid fa-rotate-left"></i> Reset desc</button>
                         </div>
+                        <div class="wo_section_label" style="margin-top:10px;">Add manual event</div>
+                        <textarea id="wo_manual_event_text" class="text_pole" placeholder="Event text (e.g. got into a fight with a colleague)" rows="2" style="resize:vertical;margin-bottom:4px;"></textarea>
+                        <div style="display:flex;gap:6px;margin-bottom:4px;">
+                            <select id="wo_manual_event_scale" class="text_pole" style="flex:1;">
+                                <option value="minor">MINOR</option>
+                                <option value="notable" selected>NOTABLE</option>
+                                <option value="major">MAJOR</option>
+                            </select>
+                            <select id="wo_manual_event_tone" class="text_pole" style="flex:1;">
+                                <option value="positive">Positive</option>
+                                <option value="negative">Negative</option>
+                            </select>
+                        </div>
+                        <button id="wo_manual_event_add" class="menu_button" style="width:100%;"><i class="fa-solid fa-pen-to-square"></i> Add Event</button>
                     </div>
 
                 </div>
@@ -2687,6 +2730,59 @@ jQuery(async () => {
             return;
         }
         await runGenerationCycle();
+    });
+
+    // Toggle All cards
+    $('#wo_toggle_all_cards').on('click', () => {
+        const cards = $('.wo_npc_events');
+        const anyOpen = cards.filter(':visible').length > 0;
+        if (anyOpen) {
+            cards.slideUp(150);
+        } else {
+            cards.slideDown(150);
+        }
+    });
+
+    // Manual event add
+    $('#wo_manual_event_add').on('click', async () => {
+        const npcName = $('#wo_edit_npc_select').val();
+        const text = $('#wo_manual_event_text').val().trim();
+        if (!npcName || !text) {
+            toastr.warning('Select an NPC and enter event text.');
+            return;
+        }
+        const scale = $('#wo_manual_event_scale').val();
+        const positive = $('#wo_manual_event_tone').val() === 'positive';
+        const npcs = getNPCs();
+        if (!npcs[npcName]) return;
+        if (!npcs[npcName].events) npcs[npcName].events = [];
+
+        // Try to get current story date from infoblock
+        let storyDate = null;
+        try {
+            const si = parseSceneInfo();
+            if (si) storyDate = [si.date, si.time].filter(Boolean).join(' ');
+        } catch(e) {}
+
+        npcs[npcName].events.push({
+            text: text,
+            scale: scale,
+            positive: positive,
+            category: 'Manual',
+            location: npcs[npcName].lastLocation || 'unknown',
+            storyDate: storyDate,
+        });
+
+        const s = getSettings();
+        if (npcs[npcName].events.length > s.maxEvents) {
+            npcs[npcName].events = npcs[npcName].events.slice(-s.maxEvents);
+        }
+
+        await saveNPCs(npcs);
+        renderNPCList();
+        updateInjection();
+        $('#wo_manual_event_text').val('');
+        toastr.success('Event added to ' + npcName);
     });
 
     
