@@ -1136,12 +1136,13 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         + '- Match the TONE (positive = something opens up or improves, negative = something closes down or hurts)\n'
         + '- Do NOT start with their name. No dialogue. No poetic language.\n\n'
         + 'Also self-report: a short location (1-5 words) and the actual scale of what you wrote (minor/notable/major).\n\n'
-        + 'Respond with ONLY this format, one line per NPC:\n'
-        + npcList.map((item, i) => 'NPC' + (i + 1) + ': [location] | [minor/notable/major] | [event sentence]').join('\n') + '\n'
-        + 'Example offscreen: NPC1: городской рынок | minor | Bargained longer than usual over fabric and left without buying anything.\n'
-        + 'Example major: NPC2: больница | major | Was told the results came back positive and sat in the corridor for an hour unable to move.\n'
-        + 'Example in-scene: NPC3: Тюменское ГУВД, кабинет Парфёнова | in-scene | No offscreen events. Currently in scene.\n'
-        + 'IMPORTANT: exactly three pipe-separated fields per line. No extra text after the sentence.';
+        + 'YOUR RESPONSE MUST USE EXACTLY THIS FORMAT — no deviations:\n'
+        + npcList.map((item, i) => 'NPC' + (i + 1) + ': [location] | [minor/notable/major] | [sentence]').join('\n') + '\n\n'
+        + 'CRITICAL: Use NPC1, NPC2, NPC3... labels. Do NOT use character names as labels. Do NOT add any text before or after.\n'
+        + 'Example:\n'
+        + 'NPC1: городской рынок | minor | Bargained longer than usual over fabric and left without buying anything.\n'
+        + 'NPC2: больница | major | Was told the results came back positive and sat unable to move.\n'
+        + 'NPC3: Тюменское ГУВД, кабинет Парфёнова | in-scene | No offscreen events. Currently in scene.';
 
     console.log('[WildOffscreen] Batch prompt for', npcList.length, 'NPCs, userContent length:', userContent.length);
 
@@ -1170,11 +1171,25 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
  * Expected format per line: NPC1: [location] | [event sentence]
  * Returns array of { location, text } or null per NPC.
  */
-function parseBatchResponse(text, count) {
+function parseBatchResponse(text, count, npcList) {
     const results = [];
     for (let i = 1; i <= count; i++) {
-        const regex = new RegExp('NPC' + i + '[:\\s]+(.+?)(?=NPC' + (i + 1) + '[:\\s]|$)', 'si');
-        const match = text.match(regex);
+        // Primary: match NPC1:, NPC2: etc.
+        let regex = new RegExp('NPC' + i + '[:\s]+(.+?)(?=NPC' + (i + 1) + '[:\s]|$)', 'si');
+        let match = text.match(regex);
+
+        // Fallback: if NPC label not found, try matching by character name
+        if (!match && npcList && npcList[i - 1]) {
+            const npcName = npcList[i - 1].npc.name.split(' ')[0]; // first name/word
+            const nameRegex = new RegExp(
+                '(?:^|\n)' + npcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+                '[:\s]+(.+?)(?=\n[A-ZА-ЯЁ][^\n]*[:\s]|$)',
+                'si'
+            );
+            match = text.match(nameRegex);
+            if (match) console.log('[WildOffscreen] Fallback name match for NPC' + i + ' (' + npcName + ')');
+        }
+
         if (!match) { results.push(null); continue; }
 
         let raw = match[1].trim().replace(/^["']|["']$/g, '').trim();
@@ -1278,7 +1293,7 @@ async function generateEventsForAllNPCs(npcs) {
 
     if (!rawText) return;
 
-    const parsed = parseBatchResponse(rawText, npcList.length);
+    const parsed = parseBatchResponse(rawText, npcList.length, npcList);
     const s = getSettings();
 
     for (let i = 0; i < npcList.length; i++) {
