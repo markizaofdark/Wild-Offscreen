@@ -35,11 +35,8 @@ const DEFAULTS = {
     outputLanguage: 'en',
     debugMode: false,        // show debug toastr notifications
     scanPosition: 'before_char',
-    sceneMode: 'infoblock',   // 'infoblock' | 'text'
-    infoblockKeywordScan: false, // infoblock mode: also scan recent messages by keywords
-    keywordScanDepth: 2,      // how many bot messages to scan (both modes)
-    textModeDepth: 2,         // kept for compatibility, mirrors keywordScanDepth in text mode
-    minutesPerExchange: 5,    // minutes added per user+bot exchange in text mode
+    infoblockKeywordScan: false, // also scan recent messages by NPC keywords
+    keywordScanDepth: 2,      // how many recent bot messages to scan for keywords
 };
 
 const LANGUAGE_INSTRUCTION = {
@@ -50,8 +47,8 @@ const LANGUAGE_INSTRUCTION = {
 
 const SCALE = [
     { min: 1,  max: 8,  id: 'minor',   label: 'MINOR'   },
-    { min: 9,  max: 16, id: 'notable', label: 'NOTABLE' },
-    { min: 17, max: 20, id: 'major',   label: 'MAJOR'   },
+    { min: 9,  max: 18, id: 'notable', label: 'NOTABLE' },
+    { min: 19, max: 20, id: 'major',   label: 'MAJOR'   },
 ];
 
 // ── Offscreen event pools ──────────────────────────────────
@@ -527,49 +524,43 @@ const EVENT_POOLS = {
 
     major: {
         Personal: {
+            // Events should apply to the NPC directly whenever possible.
+            // Only if the event cannot plausibly happen to this NPC specifically
+            // (e.g. pregnancy for a male character) — apply it to someone in their close circle
+            // (partner, child, sibling, close friend).
             positive: [
-                'experienced something that fundamentally changed how they understand themselves',
-                'made an irreversible choice about their own life that they have been circling for years',
-                'escaped something that had been defining and limiting them for a long time',
-                'came through a crisis that forced genuine change and emerged different on the other side',
-                'had a moment of clarity about who they are and what they actually want',
-                'finally let go of something they had been carrying that was costing them everything',
-                'chose themselves in a situation where they had always chosen otherwise before',
-                'survived something that would have broken an earlier version of them',
-                'became, in some irreversible way, more themselves than they had previously been allowed to be',
-                'crossed through a threshold they had been standing at the edge of for years and did not turn back',
-                'discovered that they are capable of something they had genuinely believed was beyond them',
-                'freed themselves from a version of their own story that no longer fits',
-                'made peace with something they had been at war with for so long it had become part of how they moved',
-                'decided something about the shape of their future that cannot be undecided',
-                'found, at last, something they can build around',
-                'did the thing they were most afraid to do and found out the fear was the worst part',
-                'accepted a truth about themselves that changes what is possible for them',
-                'walked away from something that was familiar and toward something that is true',
-                'reached the other side of a long and serious internal reckoning',
-                'became someone who has been through something real, and knows it',
+                'got married or formalized a long-term commitment in a way that changes the structure of their daily life',
+                'found out they are expecting a child — or that someone close to them is — and the news landed as good',
+                'received a clean bill of health after a period of genuine medical uncertainty',
+                'was reunited with a family member or close person they had not seen in years, and it went better than feared',
+                'successfully completed a recovery — from addiction, illness, or injury — that had consumed a significant portion of their recent life',
+                'moved somewhere new that genuinely fits them better, after years in the wrong place',
+                'came into money or stability in a way that changes what is possible — inheritance, settlement, or unexpected windfall',
+                'adopted or took permanent responsibility for someone or something that needed them',
+                'was granted citizenship, legal status, or recognition they had been fighting for',
+                'got a second chance at something they thought they had permanently forfeited',
+                'had a child reach a milestone — birth, graduation, recovery — that the character had been living toward',
+                'received official exoneration or public vindication after a period of wrongful blame',
+                'escaped a living situation — abusive, stifling, or simply wrong — and made it out intact',
+                'found out that a long estrangement with someone who matters to them can actually be repaired',
+                'achieved sobriety, remission, or sustained stability after a prolonged struggle',
             ],
             negative: [
-                'reached a breaking point that has been building for longer than anyone knew',
-                'made a decision in a moment of crisis that permanently altered the shape of their life',
-                'lost something central to who they are or how they see themselves',
-                'suffered something that will leave a mark they will carry for years',
-                'collapsed under the weight of something they had been managing alone',
-                'did something they cannot take back and will have to live with',
-                'had the version of themselves they showed the world shatter in front of people who mattered',
-                'discovered that something they built their life around is not what they believed it was',
-                'came apart in a way they are not sure they can put back together the same way',
-                'reached the end of something they had thought was permanent and found it was not',
-                'faced a truth about themselves that closes off a story they had been living inside',
-                'found out what they are like when everything stops working at once',
-                'lost the version of the future they had been organizing their present around',
-                'did damage to their own life that will require years to undo, if it can be undone',
-                'discovered that the worst thing they feared about themselves may have been true',
-                'had to witness themselves fail at something that mattered more than anything they said it did',
-                'fell in a way that was not dramatic but was definitive',
-                'found out who they are when there is no one watching and did not like the answer',
-                'crossed a line they cannot pretend they did not know was there',
-                'became someone who has lost something that cannot be replaced and will have to keep living anyway',
+                'lost someone close — a death that was not abstract but specific and devastating',
+                'received a diagnosis — their own or someone close — that changes the near future entirely',
+                'went through a divorce or the definitive end of a long partnership, and the ground has shifted under them',
+                'had a pregnancy end in loss — miscarriage, stillbirth, or a decision that cost them',
+                'was involved in an accident or incident that caused serious, lasting harm to themselves or someone they were responsible for',
+                'lost custody of a child, or had access to someone they were raising severely restricted',
+                'became responsible for someone who can no longer care for themselves — a parent, a sibling — and the weight of it is real',
+                'had to place someone they love in a facility or institution and did not do it easily',
+                'lost their home — eviction, foreclosure, fire, or a forced departure — with no clear next place',
+                'fell into serious debt or financial collapse that will take years to escape',
+                'had a relapse — of addiction, illness, or self-destructive behavior — after a period they thought was behind them',
+                'was cut off by family in a way that is not a dramatic break but a quiet and total withdrawal',
+                'found out that someone they were responsible for has been harmed in ways they missed or failed to prevent',
+                'suffered a miscarriage or medical crisis that was private, painful, and largely absorbed alone',
+                'was deported, lost legal status, or had documentation that defined their life revoked without recourse',
             ],
         },
         Relationship: {
@@ -1308,7 +1299,10 @@ function hasDatePattern(str) {
     if (!str) return false;
     if (/\d{4}\/\d{2}\/\d{2}/.test(str)) return true;
     // word month: 2008/Ноябрь/12 or 2008/November/12
-    return /(\d{4})[\/]([Ѐ-ӿa-zA-Z]{3,})[\/](\d{1,2})/.test(str);
+    if (/(\d{4})[\/]([Ѐ-ӿa-zA-Z]{3,})[\/](\d{1,2})/.test(str)) return true;
+    // date without year: MM/DD (e.g. 11/12)
+    if (/(?<![\d])\d{1,2}\/\d{1,2}(?![\d\/])/.test(str)) return true;
+    return false;
 }
 
 // ── Scene info parser ─────────────────────────────────────────────────────
@@ -1322,7 +1316,9 @@ function parseSceneInfo() {
     try {
         const ctx = SillyTavern.getContext();
         const chat = ctx.chat || [];
-        const lastMsg = [...chat].reverse().find(m => m.mes && hasDatePattern(m.mes));
+        // Accept messages with a date pattern OR a bullet-separated infoblock (date optional)
+        const hasInfoblock = m => m.mes && (hasDatePattern(m.mes) || /<div[^>]+border-left[^>]*?>/.test(m.mes));
+        const lastMsg = [...chat].reverse().find(hasInfoblock);
         if (!lastMsg) return null;
 
         let raw = null;
@@ -1330,12 +1326,13 @@ function parseSceneInfo() {
         const divMatch = lastMsg.mes.match(/<div[^>]+border-left[^>]*?>([\s\S]*?)<\/div>/i);
         if (divMatch) {
             const inner = normalizeDateStr(divMatch[1].replace(/<[^>]+>/g, '').trim());
-            if (/\d{4}\/\d{2}\/\d{2}/.test(inner)) raw = inner;
+            // Accept if has date OR has bullet separators (date may be absent)
+            if (hasDatePattern(inner) || inner.includes('\u2022') || inner.includes('\u2023')) raw = inner;
         }
-        // Fallback: strip all tags and grab the first line with a date
+        // Fallback: strip all tags and grab first line with date or bullet
         if (!raw) {
             const stripped = normalizeDateStr(lastMsg.mes.replace(/<[^>]+>/g, ''));
-            const lineMatch = stripped.match(/.*\d{4}\/\d{2}\/\d{2}.*/);
+            const lineMatch = stripped.match(/.*(?:\d{1,2}\/\d{1,2}|\u2022).*/);
             if (lineMatch) raw = lineMatch[0].trim();
         }
         if (!raw) return null;
@@ -1352,9 +1349,16 @@ function parseSceneInfo() {
         const locPart   = (parts[2] || '').trim();
         const charPart  = (parts[3] || '').trim();
 
-        const dateMatch = datePart.match(/(\d{4}\/\d{2}\/\d{2})/);
-        const date      = dateMatch ? dateMatch[1] : datePart;
-        const season    = datePart.replace(/\d{4}\/\d{2}\/\d{2}[,\s]*/,'').trim();
+        // Try full date YYYY/MM/DD first, then MM/DD without year, then raw text
+        const fullDateMatch = datePart.match(/(\d{4}\/\d{2}\/\d{2})/);
+        const shortDateMatch = !fullDateMatch && datePart.match(/(?<![\d])(\d{1,2}\/\d{1,2})(?![\d\/])/);
+        const date = fullDateMatch ? fullDateMatch[1]
+                   : shortDateMatch ? shortDateMatch[1]
+                   : (datePart || null);
+        const season = datePart
+            .replace(/\d{4}\/\d{2}\/\d{2}[,\s]*/,'')
+            .replace(/(?<![\d])\d{1,2}\/\d{1,2}(?![\d\/])[,\s]*/,'')
+            .trim();
 
         // Characters: split by comma, trim, remove empties
         const characters = charPart
@@ -1376,16 +1380,17 @@ function parseSceneInfo() {
  * Returns array of character names, or [] if no infoblock found.
  */
 function parseInfoblockChars(mes) {
-    if (!mes || !hasDatePattern(mes)) return [];
+    if (!mes || (!hasDatePattern(mes) && !/<div[^>]+border-left[^>]*?>/.test(mes))) return [];
     try {
         let raw = null;
         const divMatch = mes.match(/<div[^>]+border-left[^>]*?>([\s\S]*?)<\/div>/i);
         if (divMatch) {
-            raw = normalizeDateStr(divMatch[1].replace(/<[^>]+>/g, '').trim());
+            const inner = normalizeDateStr(divMatch[1].replace(/<[^>]+>/g, '').trim());
+            if (hasDatePattern(inner) || inner.includes('\u2022')) raw = inner;
         }
         if (!raw) {
             const stripped = normalizeDateStr(mes.replace(/<[^>]+>/g, ''));
-            const lineMatch = stripped.match(/.*\d{4}\/\d{2}\/\d{2}.*/);
+            const lineMatch = stripped.match(/.*(?:\d{1,2}\/\d{1,2}|\u2022).*/);
             if (lineMatch) raw = lineMatch[0].trim();
         }
         if (!raw) return [];
@@ -1484,7 +1489,7 @@ function getChatContextForNPC(npc, maxMessages = 30, maxCharsPerMsg = 3000) {
         // Find messages where this NPC appears — infoblock or text scan depending on mode
         const _ctxMode = getSettings().sceneMode || 'infoblock';
         const withNPC = nonSystem.filter(m => {
-            if (_ctxMode === 'text') return npcInRecentMessages(npcObj, 999); // scan all for context
+    
             return npcInInfoblock(npcObj, m.mes);
         });
 
@@ -1522,7 +1527,7 @@ function pickArchetype(scaleId, category, isPositive) {
 const SCALE_GUIDANCE = {
     'minor':   'MINOR — a small, forgettable moment. Everyday life. Nothing changes permanently.',
     'notable': 'NOTABLE — a real shift in their week or situation. Something they will remember. Actual change, not just a mood.',
-    'major':   'MAJOR — life-altering. Irreversible or deeply significant. Health, relationships, livelihood, identity. NOT a slightly unusual day.',
+    'major':   'MAJOR — a concrete, life-altering event. Marriage, divorce, death of someone close, serious illness or diagnosis, pregnancy, losing their home, a child being born. Irreversible. Not a mood or a realization — an actual event that happened. Apply to the NPC directly whenever possible. Only if the event genuinely cannot apply to this specific NPC (e.g. pregnancy for a male character) — apply it to someone in their immediate circle (partner, child, sibling, close friend) instead.',
 };
 
 function rollEventParams() {
@@ -1554,11 +1559,7 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         const s2 = getSettings();
         const sceneChars = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
         const searchKeys = Array.isArray(npc.searchKeys) ? npc.searchKeys : [];
-        if (s2.sceneMode === 'text') {
-            // Text mode: check if NPC appears in recent bot messages
-            inScene = npcInRecentMessages(npc, s2.keywordScanDepth || s2.textModeDepth || 2);
-            console.log('[WildOffscreen] TEXT MODE — NPC', npc.name, '→', inScene ? 'IN SCENE' : 'OFFSCREEN');
-        } else if (sceneChars.length > 0) {
+        if (sceneChars.length > 0) {
             // Infoblock mode: direct name match, + optional keyword scan
             const npcNameLower = npc.name.toLowerCase();
             const directMatch = sceneChars.some(c => {
@@ -1601,15 +1602,7 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
                     + 'Write ONE sentence (15-30 words) that applies this archetype to THIS specific character — their personality, situation, relationships, and context. Be concrete and specific to them, not generic.');
     }).join('\n\n');
 
-    // In text mode, build a minimal sceneInfo substitute (no infoblock)
-    const _bsMode = getSettings().sceneMode || 'infoblock';
-    if (_bsMode === 'text' && !sceneInfo) {
-        const it = getInternalTime();
-        if (it) {
-            // sceneInfo stays null — no character list, time comes from internal clock
-            // We'll inject time into sceneHeader manually below
-        }
-    }
+    const _bsMode = 'infoblock';
 
     // Build pending intro instructions for manually added NPCs
     const pendingIntros = npcList.filter(item => item.npc.pendingIntro);
@@ -1638,17 +1631,6 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             + 'These characters are actively participating in the scene right now and must receive "No offscreen events. Currently in scene." with their current location.\n'
             + (timeOfDay ? 'NOTE: It is currently ' + timeOfDay + '. Generated events must be plausible for this time of day.\n' : '')
             + '===\n\n';
-    } else if (_bsMode === 'text') {
-        const it = getInternalTime();
-        if (it) {
-            const th = parseInt(it.time);
-            const tod = th < 6 ? 'night' : th < 12 ? 'morning' : th < 18 ? 'afternoon' : th < 22 ? 'evening' : 'night';
-            sceneHeader = '=== SCENE TIME INFO ===\n'
-                + 'Current date: ' + it.date + ' | Time: ' + it.time + ' (' + tod + ')\n'
-                + 'NOTE: It is currently ' + tod + '. Generated events must be plausible for this time of day.\n'
-                + 'Characters in scene are determined by recent story context — NPCs mentioned in the last messages are considered present.\n'
-                + '===\n\n';
-        }
     }
 
     const userContent = (mainCharInfo ? mainCharInfo + '\n\n' : '')
@@ -1661,7 +1643,7 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         + '- If marked [OFFSCREEN]: adapt the EVENT ARCHETYPE to this specific character and write ONE concrete sentence (15-30 words).\n'
         + 'Requirements for [OFFSCREEN] NPCs:\n'
         + '- Apply the archetype to their specific personality, relationships, and situation — not generically\n'
-        + '- Match the SCALE (minor = trivial moment, notable = real shift in their situation, major = life-altering and irreversible)\n'
+        + '- Match the SCALE (minor = trivial moment, notable = real shift in their situation, major = concrete life-altering event — apply to NPC directly; only use their close circle if the event cannot plausibly apply to this NPC specifically)\n'
         + '- Match the TONE (positive = something opens up or improves, negative = something closes down or hurts)\n'
         + '- Do NOT start with their name. No dialogue. No poetic language.\n\n'
         + 'Also self-report: a short location (1-5 words) and the actual scale of what you wrote (minor/notable/major).\n\n'
@@ -1797,23 +1779,13 @@ async function generateEventsForAllNPCs(npcs) {
     const sceneCharsForFilter = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
 
     // Skip in-scene NPCs entirely — no need to send them to API
-    const _sm = getSettings();
-    console.log('[WildOffscreen] sceneMode:', _sm.sceneMode, '| sceneCharsForFilter:', sceneCharsForFilter);
     const isInSceneCheck = (npc) => {
-        if (_sm.sceneMode === 'text') {
-            const r = npcInRecentMessages(npc, _sm.textModeDepth || 2);
-            console.log('[WildOffscreen] isInSceneCheck TEXT', npc.name, '→', r);
-            return r;
-        }
-        // Infoblock mode: ONLY match against characters explicitly listed in the infoblock
-        // Search keys are NOT used here — they are for lorebook scanning, not scene detection
+        // Match against characters explicitly listed in the infoblock
         const nl = npc.name.toLowerCase();
-        const result = sceneCharsForFilter.some(c => {
+        return sceneCharsForFilter.some(c => {
             const cl = (c || '').toLowerCase().trim();
             return cl === nl || cl.includes(nl);
         });
-        console.log('[WildOffscreen] isInSceneCheck INFOBLOCK', npc.name, '→', result, '| sceneChars:', sceneCharsForFilter);
-        return result;
     };
 
     const offscreenKeys = keys.filter(k => !isInSceneCheck(npcs[k]));
@@ -2353,24 +2325,8 @@ function buildUI() {
                     <i class="fa-solid fa-chevron-down wo_acc_icon"></i>
                 </div>
                 <div class="wo_accordion_body" id="wo_sec_chars">
-                    <div class="wo_section_label" style="margin-top:6px;">Scene Detection Mode</div>
-                    <div class="wo_lang_row" id="wo_scene_mode_row">
-                        <button class="wo_scene_mode_btn menu_button" data-mode="infoblock">Info Block</button>
-                        <button class="wo_scene_mode_btn menu_button" data-mode="text">Text Scan</button>
-                    </div>
-
-                    <div class="wo_section_label">Current Story Date &amp; Time</div>
+                    <div class="wo_section_label" style="margin-top:6px;">Current Story Date &amp; Time</div>
                     <div id="wo_date_display"></div>
-
-                    <!-- Text mode time controls -->
-                    <div id="wo_time_controls" style="display:none;">
-                        <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
-                            <input type="text" id="wo_time_date" class="text_pole" placeholder="YYYY/MM/DD" style="flex:1;" />
-                            <input type="text" id="wo_time_hhmm" class="text_pole" placeholder="HH:MM" style="width:70px;flex-shrink:0;" />
-                            <button id="wo_time_set" class="menu_button" style="flex-shrink:0;" title="Set time"><i class="fa-solid fa-check"></i></button>
-                        </div>
-                        <div style="font-size:0.78em;opacity:0.5;margin-top:3px;">Auto +<input type="number" id="wo_minutes_per_exchange" class="text_pole" style="width:44px;display:inline;padding:1px 4px;font-size:1em;" /> min per exchange</div>
-                    </div>
 
                     <div id="wo_npc_list" class="wo_npc_list"></div>
 
@@ -2398,7 +2354,7 @@ function buildUI() {
                         <option value="before_char">before_char</option>
                         <option value="after_char">after_char</option>
                     </select>
-                    <div class="wo_section_label">Scene Detection (Info Block mode)</div>
+                    <div class="wo_section_label">Scene Detection</div>
                     <label class="checkbox_label">
                         <input type="checkbox" id="wo_keyword_scan" ${s.infoblockKeywordScan ? 'checked' : ''} />
                         <span>Also scan recent messages by keywords</span>
@@ -2493,35 +2449,33 @@ jQuery(async () => {
 
     function extractDateFromMessage(mes) {
         if (!mes) return null;
-        // Try to pull full content from the styled info div
+        // Try styled div first — return inner content directly (works with or without year)
         const divMatch = mes.match(/<div[^>]+border-left[^>]*>([\s\S]*?)<\/div>/i);
         if (divMatch) {
             const inner = divMatch[1].replace(/<[^>]+>/g, '').trim();
-            if (/\d{4}\/\d{2}\/\d{2}/.test(inner)) return inner;
+            if (inner) return inner;
         }
-        // Fallback: grab date + time from raw stripped text
+        // Fallback: grab from raw stripped text
         const raw = mes.replace(/<[^>]+>/g, '');
+        // Full date YYYY/MM/DD with time
         const withTime = raw.match(/(\d{4}\/\d{2}\/\d{2}[^\u2022\n]*\u2022[^\u2022\n]*)/);
         if (withTime) return withTime[1].trim();
-        const dateOnly = raw.match(/(\d{4}\/\d{2}\/\d{2})/);
-        return dateOnly ? dateOnly[1] : null;
+        // Full date only
+        const fullDate = raw.match(/(\d{4}\/\d{2}\/\d{2})/);
+        if (fullDate) return fullDate[1];
+        // Short date MM/DD with time
+        const shortWithTime = raw.match(/((?<!\d)\d{1,2}\/\d{1,2}(?![\d\/])[^\u2022\n]*\u2022[^\u2022\n]*)/);
+        if (shortWithTime) return shortWithTime[1].trim();
+        // Short date only
+        const shortDate = raw.match(/(?<!\d)(\d{1,2}\/\d{1,2})(?![\d\/])/);
+        return shortDate ? shortDate[1] : null;
     }
 
     function updateDateDisplay() {
         try {
-            const s = getSettings();
-            if (s.sceneMode === 'text') {
-                const it = getInternalTime();
-                if (it) {
-                    $('#wo_date_display').text(it.date + ' • ' + it.time);
-                } else {
-                    $('#wo_date_display').text('No time set — enter below');
-                }
-                return;
-            }
             const ctx = SillyTavern.getContext();
             const chat = ctx.chat || [];
-            const lastMsg = [...chat].reverse().find(m => m.mes && hasDatePattern(m.mes));
+            const lastMsg = [...chat].reverse().find(m => m.mes && (hasDatePattern(m.mes) || /<div[^>]+border-left[^>]*?>/.test(m.mes)));
             const dateStr = lastMsg ? extractDateFromMessage(lastMsg.mes) : null;
             $('#wo_date_display').text(dateStr || '');
         } catch(e) {
@@ -2598,55 +2552,8 @@ jQuery(async () => {
         toastr.success('All NPCs removed.');
     });
 
-    // Scene mode buttons
-    function updateSceneModeButtons() {
-        const mode = getSettings().sceneMode || 'infoblock';
-        $('.wo_scene_mode_btn').each(function() {
-            $(this).toggleClass('wo_lang_active', $(this).data('mode') === mode);
-        });
-        if (mode === 'text') {
-            $('#wo_time_controls').show();
-            $('#wo_minutes_per_exchange').val(getSettings().minutesPerExchange || 5);
-        } else {
-            $('#wo_time_controls').hide();
-        }
-        updateDateDisplay();
-    }
-    updateSceneModeButtons();
-
-    $('.wo_scene_mode_btn').on('click', function() {
-        const s = getSettings();
-        s.sceneMode = $(this).data('mode');
-        saveSettingsDebounced();
-        updateSceneModeButtons();
-    });
-
-    $('#wo_time_set').on('click', () => {
-        const dateVal = $('#wo_time_date').val().trim();
-        const timeVal = $('#wo_time_hhmm').val().trim();
-        if (!dateVal || !timeVal) { toastr.warning('Enter both date and time.'); return; }
-        if (!/^\d{4}\/\d{2}\/\d{2}$/.test(dateVal)) { toastr.warning('Date must be YYYY/MM/DD'); return; }
-        if (!/^\d{2}:\d{2}$/.test(timeVal)) { toastr.warning('Time must be HH:MM'); return; }
-        saveInternalTime(dateVal, timeVal);
-        updateDateDisplay();
-        toastr.success('Time set to ' + dateVal + ' ' + timeVal);
-    });
-
-    $('#wo_minutes_per_exchange').on('input', function() {
-        const s = getSettings();
-        s.minutesPerExchange = parseInt(this.value) || 5;
-        saveSettingsDebounced();
-    });
-
-    // Pre-fill time inputs from current internal time if set
-    function refreshTimeInputs() {
-        const it = getInternalTime();
-        if (it) {
-            $('#wo_time_date').val(it.date);
-            $('#wo_time_hhmm').val(it.time);
-        }
-    }
-    refreshTimeInputs();
+    function updateSceneModeButtons() {} // text scan removed
+    function refreshTimeInputs() {} // text scan removed
 
     // Language buttons
     function updateLangButtons() {
@@ -2787,10 +2694,6 @@ jQuery(async () => {
     // Uses message index for deduplication — stable from the moment the message enters the array,
     // unlike send_date+length which can differ between the two events if streaming is involved.
     async function onBotMessageDone() {
-        // Advance internal time in text mode (once per bot message = one exchange)
-        if (getSettings().sceneMode === 'text' && getInternalTime()) {
-            advanceInternalTime();
-        }
         updateDateDisplay();
 
         // Auto-clear pendingIntro if NPC appeared in infoblock or recent messages
@@ -2962,7 +2865,6 @@ jQuery(async () => {
 
             renderNPCList();
             updateInjection();
-            updateSceneModeButtons();
             updateDateDisplay();
             if (typeof refreshTimeInputs === 'function') refreshTimeInputs();
             $('#wo_book_info').html('Bot: ' + getBotKey());
