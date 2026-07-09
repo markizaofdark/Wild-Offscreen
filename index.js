@@ -2810,18 +2810,18 @@ jQuery(async () => {
 
             const newBotKey  = getBotKey();
             const newChatKey = getChatKey();
-            const sameBotNewChat = newBotKey === _lastBotKey && newChatKey !== _lastChatKey;
+            const chatChanged = newChatKey !== _lastChatKey || newBotKey !== _lastBotKey;
 
-            if (sameBotNewChat) {
-                // New chat with same character — check if this chatKey has any stored data
+            if (chatChanged) {
                 const s = getSettings();
-                const hasExistingData = !!(s.npcData?.[newBotKey]?.[newChatKey]);
+                // Returning to old chat = has stored NPC data (excluding only __internalTime)
+                const chatStore = s.npcData?.[newBotKey]?.[newChatKey] || {};
+                const hasExistingData = Object.keys(chatStore).some(k => k !== '__internalTime');
+
                 if (!hasExistingData) {
-                    // Genuinely new chat — clear all runtime data
                     await clearChatData();
-                    toastr.info('New chat detected — NPC events cleared. Characters retained.');
+                    toastr.info('New chat — NPC events cleared. Characters retained.');
                 }
-                // If hasExistingData — returning to an old chat, restore silently
             }
 
             _lastBotKey  = newBotKey;
@@ -2833,7 +2833,7 @@ jQuery(async () => {
             updateDateDisplay();
             if (typeof refreshTimeInputs === 'function') refreshTimeInputs();
             $('#wo_book_info').html('Bot: ' + getBotKey());
-        }, 200);
+        }, 300);
     });
 
     updateInjection();
