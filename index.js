@@ -791,13 +791,15 @@ function getBotKey() {
 function getChatKey() {
     try {
         const ctx = SillyTavern.getContext();
-        // ST stores current chat filename in ctx.getCurrentChatId() or ctx.chatId
+        // Try stable identifiers first
         const chatId = (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : null)
             || ctx.chatId
-            || ctx.selected_group
-            || (ctx.chat?.length ? 'chat_' + ctx.chat[0]?.send_date : null)
-            || 'default';
-        return String(chatId);
+            || ctx.selected_group;
+        if (chatId) return String(chatId);
+        // Fallback: first message send_date is stable for the lifetime of a chat
+        const firstMsg = ctx.chat?.[0];
+        if (firstMsg?.send_date) return 'chat_' + String(firstMsg.send_date);
+        return 'default';
     } catch(e) { return 'default'; }
 }
 
@@ -2790,10 +2792,17 @@ jQuery(async () => {
                 const npcs = getNPCs();
                 let removed = 0;
                 for (const key of Object.keys(npcs)) {
-                    if (npcs[key].enabled && npcs[key].events.length > 0) {
-                        npcs[key].events.pop();
-                        removed++;
+                    if (!npcs[key].enabled || !npcs[key].events.length) continue;
+                    const lastEvent = npcs[key].events[npcs[key].events.length - 1];
+                    npcs[key].events.pop();
+                    // Also remove auto-promoted fact that matches this event (if any)
+                    if (lastEvent && npcs[key].permanentFacts) {
+                        const factIdx = npcs[key].permanentFacts.findIndex(
+                            f => f.auto && f.text === lastEvent.text
+                        );
+                        if (factIdx !== -1) npcs[key].permanentFacts.splice(factIdx, 1);
                     }
+                    removed++;
                 }
                 if (removed > 0) {
                     await saveNPCs(npcs);
