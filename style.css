@@ -416,3 +416,47 @@ button.menu_button {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* ── Notes field ────────────────────────────────────── */
+
+.wo_notes_row {
+    margin: 4px 0;
+}
+
+.wo_notes_input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 0.82em;
+    resize: vertical;
+    min-height: 40px;
+}
+
+/* ── Description edit ───────────────────────────────── */
+
+.wo_desc_input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 0.82em;
+}
+
+.wo_desc_actions {
+    margin-top: 4px;
+}
+
+/* ── Single generate button ─────────────────────────── */
+
+.wo_btn_gen_one {
+    color: var(--SmartThemeQuoteColor) !important;
+    opacity: 0.7;
+}
+
+.wo_btn_gen_one:hover {
+    opacity: 1;
+}
+
+/* ── Token counter ──────────────────────────────────── */
+
+#wo_token_count {
+    padding: 2px 0;
+    font-size: 0.78em !important;
+}

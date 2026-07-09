@@ -474,6 +474,8 @@ function getNPCs() {
             permanentFacts: runtime.permanentFacts || [],
             lastLocation: runtime.lastLocation || null,
             pendingIntro: npc.pendingIntro ?? false,
+            notes: npc.notes || '',
+            lorebookDescription: npc.lorebookDescription || npc.description || '',
         };
     }
     return merged;
@@ -493,9 +495,11 @@ async function saveNPCs(npcs) {
         s.npcData[botKey].__npcs[name] = {
             name: npc.name,
             description: npc.description,
+            notes: npc.notes || '',
             enabled: npc.enabled,
             searchKeys: npc.searchKeys || [],
             lorebookName: npc.lorebookName || '',
+            lorebookDescription: npc.lorebookDescription || npc.description || '',
             entryUid: npc.entryUid ?? null,
             pendingIntro: npc.pendingIntro ?? false,
         };
@@ -681,7 +685,7 @@ function registerNPCs(scanned) {
     let added = 0;
     for (const { name, description, searchKeys, lorebookName, entryUid } of scanned) {
         if (!npcs[name]) {
-            npcs[name] = { name, description, searchKeys: searchKeys || [], lorebookName: lorebookName || '', entryUid: entryUid ?? null, enabled: true, events: [], permanentFacts: [], pendingIntro: false };
+            npcs[name] = { name, description, lorebookDescription: description, notes: '', searchKeys: searchKeys || [], lorebookName: lorebookName || '', entryUid: entryUid ?? null, enabled: true, events: [], permanentFacts: [], pendingIntro: false };
             added++;
         } else {
             npcs[name].description = description;
@@ -1069,10 +1073,13 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
             ? facts.map(f => '  [' + (f.positive ? '+' : '-') + 'PERMANENT] ' + f.text).join('\n')
             : 'None.';
 
-        console.log('[WildOffscreen] NPC', npc.name, '→', inScene ? '[IN SCENE]' : '[OFFSCREEN]', '| sceneChars:', sceneChars);
+        const notesBlock = npc.notes ? 'CURRENT NOTES (override lorebook if contradicts): ' + npc.notes + '\n' : '';
+
+        console.log('[WildOffscreen] NPC', npc.name, '→', inScene ? '[IN SCENE]' : '[OFFSCREEN]');
         return '--- NPC ' + (i + 1) + ': ' + npc.name + (inScene ? ' [IN SCENE]' : ' [OFFSCREEN]') + ' ---\n'
             + 'DESCRIPTION: ' + npc.description.slice(0, 3000) + '\n'
-            + (lastLoc ? lastLoc + '\n' : '')
+            + notesBlock
+            + (lastLoc ? 'LAST KNOWN LOCATION: ' + npc.lastLocation + '\n' : '')
             + 'PERMANENT FACTS (always true, never contradict these): ' + (facts.length ? '\n' + factsBlock : 'None.') + '\n'
             + 'OFFSCREEN HISTORY (chronological, [latest] is most recent):\n'
             + history + '\n'
@@ -1103,11 +1110,15 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         const inSceneNames = sceneInfo.characters.length
             ? sceneInfo.characters.join(', ')
             : 'unknown';
+        const timeOfDay = sceneInfo.time
+            ? (parseInt(sceneInfo.time) < 6 ? 'night' : parseInt(sceneInfo.time) < 12 ? 'morning' : parseInt(sceneInfo.time) < 18 ? 'afternoon' : parseInt(sceneInfo.time) < 22 ? 'evening' : 'night')
+            : null;
         sceneHeader = '=== ACTIVE SCENE INFO (from story header) ===\n'
-            + 'Date & time: ' + sceneInfo.date + (sceneInfo.time ? ' • ' + sceneInfo.time : '') + (sceneInfo.season ? ', ' + sceneInfo.season : '') + '\n'
+            + 'Date: ' + sceneInfo.date + (sceneInfo.time ? ' | Time: ' + sceneInfo.time + (timeOfDay ? ' (' + timeOfDay + ')' : '') : '') + '\n'
             + 'Current location: ' + (sceneInfo.location || 'unknown') + '\n'
             + 'Characters PRESENT in this scene: ' + inSceneNames + '\n'
             + 'These characters are actively participating in the scene right now and must receive "No offscreen events. Currently in scene." with their current location.\n'
+            + (timeOfDay ? 'NOTE: It is currently ' + timeOfDay + '. Generated events must be plausible for this time of day.\n' : '')
             + '===\n\n';
     }
 
@@ -1237,10 +1248,30 @@ async function generateEventsForAllNPCs(npcs) {
         } catch(e) { return ''; }
     })();
 
-    const npcList = keys.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
-
     const sceneInfo = parseSceneInfo();
     const storyDate = sceneInfo ? [sceneInfo.date, sceneInfo.time].filter(Boolean).join(' ') : null;
+    const sceneCharsForFilter = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
+
+    // Skip in-scene NPCs entirely — no need to send them to API
+    const isInSceneCheck = (npc) => sceneCharsForFilter.some(c => {
+        if (!c || typeof c !== 'string') return false;
+        const cl = c.toLowerCase().trim();
+        const nl = npc.name.toLowerCase();
+        const sk = Array.isArray(npc.searchKeys) ? npc.searchKeys : [];
+        return cl === nl || cl.includes(nl) || sk.some(k => k && typeof k === 'string' && cl.includes(k.toLowerCase()));
+    });
+
+    const offscreenKeys = keys.filter(k => !isInSceneCheck(npcs[k]));
+    const skippedInScene = keys.filter(k => isInSceneCheck(npcs[k]));
+    if (skippedInScene.length) console.log('[WildOffscreen] Skipping in-scene NPCs (no API call):', skippedInScene);
+
+    if (!offscreenKeys.length) {
+        console.log('[WildOffscreen] All NPCs in scene, nothing to generate.');
+        return;
+    }
+
+    const npcList = offscreenKeys.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
+
     const messages = buildBatchMessages(npcList, mainCharInfo, sharedChat, sceneInfo);
     const rawText = await callAPI(messages, npcList.length);
     console.log('[WildOffscreen] Batch response:', rawText?.slice(0, 500));
@@ -1301,6 +1332,84 @@ async function generateEventsForAllNPCs(npcs) {
         }
 
         console.log('[WildOffscreen] Event for', npc.name, '@', result.location, ':', result.text);
+    }
+}
+
+async function generateForSingleNPC(npcName) {
+    if (isGenerating) { toastr.warning('Already generating, please wait.'); return; }
+    const npcs = getNPCs();
+    const npc = npcs[npcName];
+    if (!npc || !npc.enabled) return;
+
+    isGenerating = true;
+    $('#wo_status').text('Generating for ' + npcName + '…').show();
+
+    try {
+        const sceneInfo = parseSceneInfo();
+        const storyDate = sceneInfo ? [sceneInfo.date, sceneInfo.time].filter(Boolean).join(' ') : null;
+        const sceneCharsForFilter = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
+        const inScene = sceneCharsForFilter.some(c => {
+            if (!c || typeof c !== 'string') return false;
+            const cl = c.toLowerCase().trim();
+            return cl === npcName.toLowerCase() || cl.includes(npcName.toLowerCase());
+        });
+
+        if (inScene) { toastr.info(npcName + ' is currently in scene — no offscreen events.'); return; }
+
+        const mainCharInfo = getMainCharInfo();
+        const sharedChat = (() => {
+            try {
+                const ctx = SillyTavern.getContext();
+                const s = getSettings();
+                return (ctx.chat || [])
+                    .filter(m => !m.is_system && m.mes)
+                    .slice(-s.maxMessages)
+                    .map(m => (m.is_user ? '[User]' : '[Bot]') + ' ' + m.mes.replace(/<[^>]+>/g, '').trim().slice(0, s.maxCharsPerMsg))
+                    .join('\n');
+            } catch(e) { return ''; }
+        })();
+
+        const params = rollEventParams();
+        const npcList = [{ npc, key: npcName, params }];
+        const messages = buildBatchMessages(npcList, mainCharInfo, sharedChat, sceneInfo);
+        const rawText = await callAPI(messages, 1);
+        if (!rawText) { toastr.error('No response from API.'); return; }
+
+        const parsed = parseBatchResponse(rawText, 1);
+        const result = parsed[0];
+        if (!result || result.inScene) { toastr.warning('No event generated.'); return; }
+
+        const s = getSettings();
+        const event = {
+            text: result.text,
+            location: result.location,
+            scale: result.reportedScale || params.scale.id,
+            category: params.category,
+            positive: params.isPositive,
+            timestamp: Date.now(),
+            storyDate: storyDate || null,
+        };
+        npc.events.push(event);
+        if (npc.events.length > s.maxEvents) npc.events = npc.events.slice(-s.maxEvents);
+        if (!npc.permanentFacts) npc.permanentFacts = [];
+        if (result.reportedScale === 'major') {
+            if (!npc.permanentFacts.some(f => f.text === result.text)) {
+                npc.permanentFacts.push({ text: result.text, category: params.category, positive: params.isPositive, timestamp: Date.now(), storyDate: storyDate || null, auto: true });
+            }
+        }
+        if (result.location && result.location !== 'unknown') npc.lastLocation = result.location;
+
+        const allNpcs = getNPCs();
+        allNpcs[npcName] = npc;
+        await saveNPCs(allNpcs);
+        renderNPCList();
+        updateInjection();
+        toastr.success('Event generated for ' + npcName + '.');
+    } catch(e) {
+        toastr.error('Error: ' + e.message);
+    } finally {
+        isGenerating = false;
+        $('#wo_status').text('').hide();
     }
 }
 
@@ -1410,10 +1519,18 @@ function buildInjectionText(npcs, injectMax) {
         + introNote;
 }
 
+function estimateTokens(text) {
+    // Rough estimate: ~4 chars per token for mixed Russian/English
+    return Math.ceil(text.length / 4);
+}
+
 function updateInjection() {
     const s = getSettings();
     const text = s.enabled ? buildInjectionText(getNPCs(), s.injectMaxMessages) : '';
     setExtensionPrompt(EXT, text, INJECTION_POSITION, 0, false, 0);
+    // Update token counter in UI
+    const tokens = text ? estimateTokens(text) : 0;
+    $('#wo_token_count').text(tokens > 0 ? '~' + tokens + ' tokens injected' : 'nothing injected');
 }
 
 // ── Generation hook ────────────────────────────────────────
@@ -1473,6 +1590,7 @@ function renderNPCList() {
                 <span class="wo_npc_count">${npc.lastLocation ? '<i class="fa-solid fa-location-dot" style="font-size:0.8em;margin-right:3px;"></i>' : ''}${count} event${count !== 1 ? 's' : ''}</span>
                 <div class="wo_npc_actions">
                     ${npc.pendingIntro ? '<button class="wo_btn_introduce menu_button wo_btn_introduce_pulse" title="Introduce into scene"><i class="fa-solid fa-door-open"></i></button>' : ''}
+                    <button class="wo_btn_gen_one menu_button" title="Generate event for this NPC only"><i class="fa-solid fa-bolt"></i></button>
                     <button class="wo_btn_toggle menu_button">${npc.enabled ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>'}</button>
                     <button class="wo_btn_clear menu_button" title="Clear events"><i class="fa-solid fa-trash-can"></i></button>
                     <button class="wo_btn_delete menu_button" title="Remove NPC"><i class="fa-solid fa-xmark"></i></button>
@@ -1486,6 +1604,59 @@ function renderNPCList() {
         if (npc.lastLocation) {
             evContainer.append('<div class="wo_npc_location"><i class="fa-solid fa-location-dot"></i> ' + npc.lastLocation + '</div>');
         }
+
+        // Notes field
+        const notesVal = npc.notes || '';
+        const notesRow = $('<div class="wo_notes_row"></div>');
+        const notesInput = $('<textarea class="wo_notes_input text_pole" placeholder="Notes (always sent to AI)..." rows="2"></textarea>').val(notesVal);
+        let notesTimer = null;
+        notesInput.on('input', function() {
+            clearTimeout(notesTimer);
+            notesTimer = setTimeout(async () => {
+                const s = getSettings();
+                const botKey = getBotKey();
+                if (s.npcData?.[botKey]?.__npcs?.[key]) {
+                    s.npcData[botKey].__npcs[key].notes = notesInput.val().trim();
+                    saveSettingsDebounced();
+                }
+            }, 600);
+        });
+        notesRow.append(notesInput);
+        evContainer.append(notesRow);
+
+        // Edit description
+        const hasCustomDesc = npc.lorebookDescription && npc.description !== npc.lorebookDescription;
+        const descRow = $('<div class="wo_desc_row"></div>');
+        const descToggle = $('<button class="wo_btn_desc_edit menu_button" style="width:100%;font-size:0.8em;margin-bottom:4px;opacity:0.6;"><i class="fa-solid fa-pen-to-square"></i> ' + (hasCustomDesc ? 'Description (edited)' : 'Edit description') + '</button>');
+        const descArea = $('<textarea class="wo_desc_input text_pole" rows="4" style="display:none;resize:vertical;"></textarea>').val(npc.description);
+        const descActions = $('<div style="display:none;gap:4px;" class="wo_actions wo_desc_actions"></div>');
+        const descSave = $('<button class="menu_button" style="flex:1;font-size:0.8em;"><i class="fa-solid fa-floppy-disk"></i> Save</button>');
+        const descReset = $('<button class="menu_button" style="flex:1;font-size:0.8em;opacity:0.6;" title="Restore lorebook description"><i class="fa-solid fa-rotate-left"></i> Reset</button>');
+        descActions.append(descSave).append(descReset);
+        descToggle.on('click', () => { descArea.slideToggle(100); descActions.slideToggle(100); });
+        descSave.on('click', async () => {
+            const s = getSettings();
+            const botKey = getBotKey();
+            if (s.npcData?.[botKey]?.__npcs?.[key]) {
+                s.npcData[botKey].__npcs[key].description = descArea.val().trim();
+                saveSettingsDebounced();
+                renderNPCList();
+                toastr.success('Description saved.');
+            }
+        });
+        descReset.on('click', async () => {
+            const s = getSettings();
+            const botKey = getBotKey();
+            if (s.npcData?.[botKey]?.__npcs?.[key]) {
+                const lb = s.npcData[botKey].__npcs[key].lorebookDescription || '';
+                s.npcData[botKey].__npcs[key].description = lb;
+                saveSettingsDebounced();
+                renderNPCList();
+                toastr.success('Description reset to lorebook.');
+            }
+        });
+        descRow.append(descToggle).append(descArea).append(descActions);
+        evContainer.append(descRow);
 
         // ── Permanent facts section ──────────────────────────────
         const facts = Array.isArray(npc.permanentFacts) ? npc.permanentFacts : [];
@@ -1600,6 +1771,11 @@ function renderNPCList() {
             if ($(e.target).closest('.wo_npc_actions').length) return;
             evContainer.slideToggle(150);
         });
+        card.find('.wo_btn_gen_one').on('click', async (e) => {
+            e.stopPropagation();
+            await generateForSingleNPC(key);
+        });
+
         card.find('.wo_btn_introduce').on('click', async (e) => {
             e.stopPropagation();
             const s = getSettings();
@@ -1658,6 +1834,7 @@ function buildUI() {
 
             <label class="checkbox_label"><input type="checkbox" id="wo_toggle" ${s.enabled ? 'checked' : ''} /><span>Enable</span></label>
             <div id="wo_status" class="wo_status" style="display:none;"></div>
+            <div id="wo_token_count" class="wo_status" style="opacity:0.5;font-style:normal;font-size:0.78em;"></div>
 
             <!-- ── Section: Characters ── -->
             <div class="wo_accordion">
@@ -1682,19 +1859,6 @@ function buildUI() {
                 </div>
             </div>
 
-            <!-- ── Section: Add NPC ── -->
-            <div class="wo_accordion">
-                <div class="wo_accordion_header" data-target="wo_sec_add">
-                    <span><i class="fa-solid fa-user-plus"></i> Add NPC manually</span>
-                    <i class="fa-solid fa-chevron-down wo_acc_icon"></i>
-                </div>
-                <div class="wo_accordion_body" id="wo_sec_add" style="display:none;">
-                    <input type="text" id="wo_manual_name" class="text_pole" placeholder="Name" style="margin-top:6px;margin-bottom:4px;" />
-                    <textarea id="wo_manual_desc" class="text_pole" placeholder="Description (optional)" rows="3" style="resize:vertical;margin-bottom:4px;"></textarea>
-                    <button id="wo_manual_add" class="menu_button" style="width:100%;"><i class="fa-solid fa-user-plus"></i> Add NPC</button>
-                </div>
-            </div>
-
             <!-- ── Section: Lorebook & Tokens ── -->
             <div class="wo_accordion">
                 <div class="wo_accordion_header" data-target="wo_sec_lore">
@@ -1713,10 +1877,24 @@ function buildUI() {
                     <input type="number" id="wo_max_messages" class="text_pole" value="${s.maxMessages || 30}" />
                     <label><small>Max characters per message</small></label>
                     <input type="number" id="wo_max_chars" class="text_pole" value="${s.maxCharsPerMsg || 2000}" />
-                    <label style="margin-top:4px;"><small>Generate events every N bot messages</small></label>
+                    <div class="wo_section_label">Generation</div>
+                    <label><small>Generate events every N messages (counts both bot and user messages)</small></label>
                     <input type="number" id="wo_trigger_every" class="text_pole" value="${s.triggerEvery}" />
                     <label><small>Max stored events per NPC</small></label>
                     <input type="number" id="wo_max_events" class="text_pole" value="${s.maxEvents}" />
+                </div>
+            </div>
+
+            <!-- ── Section: Add NPC ── -->
+            <div class="wo_accordion">
+                <div class="wo_accordion_header" data-target="wo_sec_add">
+                    <span><i class="fa-solid fa-user-plus"></i> Add NPC manually</span>
+                    <i class="fa-solid fa-chevron-down wo_acc_icon"></i>
+                </div>
+                <div class="wo_accordion_body" id="wo_sec_add" style="display:none;">
+                    <input type="text" id="wo_manual_name" class="text_pole" placeholder="Name" style="margin-top:6px;margin-bottom:4px;" />
+                    <textarea id="wo_manual_desc" class="text_pole" placeholder="Description (optional)" rows="3" style="resize:vertical;margin-bottom:4px;"></textarea>
+                    <button id="wo_manual_add" class="menu_button" style="width:100%;"><i class="fa-solid fa-user-plus"></i> Add NPC</button>
                 </div>
             </div>
 
