@@ -1333,6 +1333,9 @@ async function generateEventsForAllNPCs(npcs) {
 
         console.log('[WildOffscreen] Event for', npc.name, '@', result.location, ':', result.text);
     }
+
+    // Save all mutations back to storage
+    await saveNPCs(npcs);
 }
 
 async function runGenerationCycle() {
@@ -1366,18 +1369,21 @@ async function runGenerationCycle() {
         console.log('[WildOffscreen] Offscreen:', offscreenKeys.length, '| In scene:', inSceneKeys.length);
 
         await generateEventsForAllNPCs(npcs);
-        const firstGenerated = offscreenKeys.filter(k => npcs[k].events.length > beforeCounts[k]).length;
+
+        // Re-fetch after generation since generateEventsForAllNPCs saves internally
+        let npcsAfter = getNPCs();
+        const firstGenerated = offscreenKeys.filter(k => (npcsAfter[k]?.events.length || 0) > beforeCounts[k]).length;
         if (firstGenerated === 0 && offscreenKeys.length > 0) {
             console.log('[WildOffscreen] First attempt got 0 offscreen results, retrying...');
             await new Promise(r => setTimeout(r, 1500));
-            await generateEventsForAllNPCs(npcs);
+            await generateEventsForAllNPCs(getNPCs());
+            npcsAfter = getNPCs();
         }
 
-        await saveNPCs(npcs);
         updateInjection();
         renderNPCList();
 
-        const generated = offscreenKeys.filter(k => npcs[k].events.length > beforeCounts[k]).length;
+        const generated = offscreenKeys.filter(k => (npcsAfter[k]?.events.length || 0) > beforeCounts[k]).length;
         const failed = offscreenKeys.length - generated;
 
         if (offscreenKeys.length === 0 && inSceneKeys.length > 0) {
@@ -1806,7 +1812,7 @@ function buildUI() {
                     </select>
                     <div id="wo_edit_npc_panel" style="display:none;">
                         <label><small>Notes <span style="opacity:0.5;">(always sent to AI, overrides lorebook if contradicts)</span></small></label>
-                        <textarea id="wo_edit_notes" class="text_pole" placeholder="just any notes for npc..." rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
+                        <textarea id="wo_edit_notes" class="text_pole" placeholder="any notes for this character..." rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
                         <label><small>Description</small></label>
                         <textarea id="wo_edit_desc" class="text_pole" rows="5" style="resize:vertical;margin-bottom:4px;"></textarea>
                         <div class="wo_actions">
