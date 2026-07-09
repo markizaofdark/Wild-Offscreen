@@ -1430,7 +1430,15 @@ function buildInjectionText(npcs, injectMax) {
 
     let introNote = '';
     if (activeIntroNames.length) {
-        introNote += '\n[INTRODUCE NOW: ' + activeIntroNames.join(', ') + ' — this character should appear in the current scene. Find a natural, unforced way to bring them in that fits the setting and current situation. Do not make it awkward or abrupt.]';
+        const names = activeIntroNames.join(', ');
+        introNote += '\n\n[!!! MANDATORY — DO NOT SKIP !!!]\n'
+            + 'You MUST introduce the following character(s) into THIS response, right now: ' + names + '.\n'
+            + 'This is not a suggestion. This character MUST physically appear or be directly referenced in the scene you are about to write.\n'
+            + 'Requirements:\n'
+            + '- They must enter, arrive, be encountered, or make their presence known within this very message\n'
+            + '- The introduction must feel natural and consistent with the current location, time of day, and tone of the scene\n'
+            + '- Do NOT delay it to the next message. Do NOT hint at their arrival. Make it happen NOW.\n'
+            + '[!!! END MANDATORY !!!]';
     }
     if (passiveIntroNames.length) {
         introNote += '\n[PENDING: ' + passiveIntroNames.join(', ') + ' — exists in this world, introduce naturally when the moment fits.]';
