@@ -1804,7 +1804,7 @@ function buildUI() {
                     </select>
                     <div id="wo_edit_npc_panel" style="display:none;">
                         <label><small>Notes <span style="opacity:0.5;">(always sent to AI, overrides lorebook if contradicts)</span></small></label>
-                        <textarea id="wo_edit_notes" class="text_pole" placeholder="e.g. currently pregnant, in conflict with Parfyonov..." rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
+                        <textarea id="wo_edit_notes" class="text_pole" rows="2" style="resize:vertical;margin-bottom:6px;"></textarea>
                         <label><small>Description</small></label>
                         <textarea id="wo_edit_desc" class="text_pole" rows="5" style="resize:vertical;margin-bottom:4px;"></textarea>
                         <div class="wo_actions">
