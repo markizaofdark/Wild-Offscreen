@@ -1765,25 +1765,31 @@ async function generateEventsForAllNPCs(npcs) {
 
     // Skip in-scene NPCs entirely — no need to send them to API
     const _sm = getSettings();
+    console.log('[WildOffscreen] sceneMode:', _sm.sceneMode, '| sceneCharsForFilter:', sceneCharsForFilter);
     const isInSceneCheck = (npc) => {
         if (_sm.sceneMode === 'text') {
-            return npcInRecentMessages(npc, _sm.textModeDepth || 2);
+            const r = npcInRecentMessages(npc, _sm.textModeDepth || 2);
+            console.log('[WildOffscreen] isInSceneCheck TEXT', npc.name, '→', r);
+            return r;
         }
         const sceneText = sceneCharsForFilter.join(', ');
         const nl = npc.name.toLowerCase();
         const sk = Array.isArray(npc.searchKeys) ? npc.searchKeys : [];
-        if (sceneCharsForFilter.some(c => { const cl = (c || '').toLowerCase().trim(); return cl === nl || cl.includes(nl); })) return true;
-        return sk.some(k => {
+        const direct = sceneCharsForFilter.some(c => { const cl = (c || '').toLowerCase().trim(); return cl === nl || cl.includes(nl); });
+        const keyMatch = !direct && sk.some(k => {
             if (!k || typeof k !== 'string') return false;
             const rx = parseKeyAsRegex(k);
             if (rx) return rx.test(sceneText);
             return k.length >= 2 && sceneText.toLowerCase().includes(k.toLowerCase());
         });
+        const result = direct || keyMatch;
+        console.log('[WildOffscreen] isInSceneCheck INFOBLOCK', npc.name, '→', result, '| direct:', direct, 'keyMatch:', keyMatch, '| sceneText:', sceneText);
+        return result;
     };
 
     const offscreenKeys = keys.filter(k => !isInSceneCheck(npcs[k]));
     const skippedInScene = keys.filter(k => isInSceneCheck(npcs[k]));
-    if (skippedInScene.length) console.log('[WildOffscreen] Skipping in-scene NPCs (no API call):', skippedInScene);
+    console.log('[WildOffscreen] offscreenKeys:', offscreenKeys, '| skippedInScene:', skippedInScene);
 
     if (!offscreenKeys.length) {
         console.log('[WildOffscreen] All NPCs in scene, nothing to generate.');
