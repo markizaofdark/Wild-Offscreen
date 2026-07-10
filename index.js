@@ -758,6 +758,7 @@ let lastChatLength = 0;  // tracks chat size to detect rerolls
 let lastBotMessageId = null; // tracks last bot message to detect rerolls accurately
 let isGenerating = false; // guard against re-entrant generation
 let lastProcessedMsgId = null; // deduplicate MESSAGE_RECEIVED + CHARACTER_MESSAGE_RENDERED
+let _chatSwitchPending = false; // true while chat switch is in progress — prevents stale renders
 
 // ── Settings ───────────────────────────────────────────────
 
@@ -865,7 +866,8 @@ function advanceInternalTime() {
 /** Returns merged NPC objects: identity from __npcs + runtime data from chatStore */
 function getNPCs() {
     const store = getNPCStore();
-    const chatStore = getChatStore();
+    // While chat switch is pending, don't read chat-specific data — it may point to the old chat
+    const chatStore = _chatSwitchPending ? {} : getChatStore();
     const merged = {};
     for (const [name, npc] of Object.entries(store.__npcs)) {
         const runtime = chatStore[name] || {};
@@ -2774,6 +2776,8 @@ jQuery(async () => {
     // Uses message index for deduplication — stable from the moment the message enters the array,
     // unlike send_date+length which can differ between the two events if streaming is involved.
     async function onBotMessageDone() {
+        // Don't process messages while chat switch is in progress — context is stale
+        if (_chatSwitchPending) return;
         updateDateDisplay();
 
         // Auto-clear pendingIntro if NPC appeared in infoblock or recent messages
@@ -2905,6 +2909,8 @@ jQuery(async () => {
         // Pre-set to a fingerprint matching index 0 so the initial bot greeting
         // doesn't slip through dedup and increment msgCounter before user sends anything.
         lastProcessedMsgId = '0|';
+        // Block stale data reads until new chat context is ready
+        _chatSwitchPending = true;
 
         // Snapshot prev keys synchronously
         const prevBotKey  = _lastBotKey;
@@ -2968,6 +2974,9 @@ jQuery(async () => {
                     if (s.npcData?.[bk]?.['default']) delete s.npcData[bk]['default'];
                 }
             }
+
+            // Chat context is now ready — allow normal data reads again
+            _chatSwitchPending = false;
 
             renderNPCList();
             updateInjection();
