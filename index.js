@@ -759,6 +759,7 @@ let lastBotMessageId = null; // tracks last bot message to detect rerolls accura
 let isGenerating = false; // guard against re-entrant generation
 let lastProcessedMsgId = null; // deduplicate MESSAGE_RECEIVED + CHARACTER_MESSAGE_RENDERED
 let _chatSwitchPending = false; // true while chat switch is in progress — prevents stale renders
+let _isNewChat = false;        // true for brand-new empty chats until first save — prevents stale chatStore reads
 
 // ── Settings ───────────────────────────────────────────────
 
@@ -867,7 +868,7 @@ function advanceInternalTime() {
 function getNPCs() {
     const store = getNPCStore();
     // While chat switch is pending, don't read chat-specific data — it may point to the old chat
-    const chatStore = _chatSwitchPending ? {} : getChatStore();
+    const chatStore = (_chatSwitchPending || _isNewChat) ? {} : getChatStore();
     const merged = {};
     for (const [name, npc] of Object.entries(store.__npcs)) {
         const runtime = chatStore[name] || {};
@@ -905,6 +906,7 @@ async function saveNPCsPartial(npcs) {
             s.npcData[botKey].__npcs[name].pendingIntro = npc.pendingIntro ?? false;
         }
     }
+    _isNewChat = false; // first real save — chatStore now has a valid key
     console.log('[WildOffscreen] saveNPCsPartial | keys:', Object.keys(npcs), '| chatKey:', chatKey);
     saveSettingsDebounced();
 }
@@ -2906,18 +2908,13 @@ jQuery(async () => {
         msgCounter = 0;
         lastChatLength = 0;
         lastBotMessageId = null;
-        // Pre-set to a fingerprint matching index 0 so the initial bot greeting
-        // doesn't slip through dedup and increment msgCounter before user sends anything.
         lastProcessedMsgId = '0|';
-        // Block stale data reads until new chat context is ready
         _chatSwitchPending = true;
 
-        // Snapshot prev keys synchronously
         const prevBotKey  = _lastBotKey;
         const prevChatKey = _lastChatKey;
 
         setTimeout(async () => {
-            // Read keys AFTER ST has finished switching context
             const newBotKey  = getBotKey();
             const newChatKey = getChatKey();
             _lastBotKey  = newBotKey;
@@ -2930,25 +2927,31 @@ jQuery(async () => {
                 lastProcessedMsgId = (lastChatLength - 1) + '|' + (lastExisting?.mes || '').slice(-60);
             } catch(e) {}
 
-            const chatChanged = newChatKey !== prevChatKey || newBotKey !== prevBotKey;
+            const botChanged  = newBotKey  !== prevBotKey;
+            const chatChanged = newChatKey !== prevChatKey || botChanged;
 
             if (chatChanged) {
                 const s = getSettings();
-                const chatStore = s.npcData?.[newBotKey]?.[newChatKey] || {};
-                const hasExistingData = Object.keys(chatStore).some(k => k !== '__internalTime');
 
-                // Check if this bot has any NPCs registered at all
-                const hasAnyNPCs = Object.keys(s.npcData?.[newBotKey]?.__npcs || {}).length > 0;
+                // New chat detection: getChatKey() returns 'default' when the new chat
+                // has no id yet (ST hasn't saved it). This is the most reliable signal —
+                // chat.length is unreliable because greeting may already be present.
+                const isNewChat = newChatKey === 'default';
 
-                if (!hasExistingData) {
-                    await clearChatData(newBotKey, newChatKey);
-                    debugToast('New chat — events cleared. Characters retained.');
+                if (!isNewChat) {
+                    // Existing chat — just load its data, never clear anything
+                    _isNewChat = false;
+                    const chatStore = s.npcData?.[newBotKey]?.[newChatKey] || {};
+                    const eventCount = Object.values(chatStore).filter(v => v?.events).reduce((n, v) => n + v.events.length, 0);
+                    debugToast('Chat loaded. Events: ' + eventCount);
                 } else {
-                    const eventCount = Object.values(chatStore).reduce((n, v) => n + (v?.events?.length || 0), 0);
-                    debugToast('Returning to existing chat. Events found: ' + eventCount);
+                    // New chat — suppress chatStore reads until first save gives us a real chatKey
+                    _isNewChat = true;
+                    debugToast('New chat — starting fresh.');
                 }
 
-                // Auto-scan lorebook on first open if no NPCs registered for this bot
+                // Auto-scan lorebook if no NPCs registered for this bot yet
+                const hasAnyNPCs = Object.keys(s.npcData?.[newBotKey]?.__npcs || {}).length > 0;
                 if (!hasAnyNPCs && newBotKey !== 'unknown') {
                     try {
                         const { npcs: found, bookNames } = await scanCharacterLorebooks();
@@ -2964,18 +2967,6 @@ jQuery(async () => {
                 }
             }
 
-            // Safety: if getChatKey() still returns 'default' at render time,
-            // clear it so stale events from a previous chat don't show up
-            if (chatChanged) {
-                const s = getSettings();
-                const resolvedChatKey = getChatKey();
-                if (resolvedChatKey === 'default') {
-                    const bk = getBotKey();
-                    if (s.npcData?.[bk]?.['default']) delete s.npcData[bk]['default'];
-                }
-            }
-
-            // Chat context is now ready — allow normal data reads again
             _chatSwitchPending = false;
 
             renderNPCList();
@@ -2985,6 +2976,5 @@ jQuery(async () => {
             $('#wo_book_info').html('Bot: ' + getBotKey());
         }, 300);
     });
-
     updateInjection();
 });
