@@ -759,7 +759,6 @@ let lastBotMessageId = null; // tracks last bot message to detect rerolls accura
 let isGenerating = false; // guard against re-entrant generation
 let lastProcessedMsgId = null; // deduplicate MESSAGE_RECEIVED + CHARACTER_MESSAGE_RENDERED
 let _chatSwitchPending = false; // true while chat switch is in progress — prevents stale renders
-let _isNewEmptyChat = false;   // true when switched to a brand-new chat with no messages yet
 
 // ── Settings ───────────────────────────────────────────────
 
@@ -867,9 +866,8 @@ function advanceInternalTime() {
 /** Returns merged NPC objects: identity from __npcs + runtime data from chatStore */
 function getNPCs() {
     const store = getNPCStore();
-    // While chat switch is pending or we're in a brand-new empty chat,
-    // don't read chat-specific data — it may point to the old chat
-    const chatStore = (_chatSwitchPending || _isNewEmptyChat) ? {} : getChatStore();
+    // While chat switch is pending, don't read chat-specific data — it may point to the old chat
+    const chatStore = _chatSwitchPending ? {} : getChatStore();
     const merged = {};
     for (const [name, npc] of Object.entries(store.__npcs)) {
         const runtime = chatStore[name] || {};
@@ -907,11 +905,6 @@ async function saveNPCsPartial(npcs) {
             s.npcData[botKey].__npcs[name].pendingIntro = npc.pendingIntro ?? false;
         }
     }
-    // Stamp current chat/bot keys into chat_metadata so CHAT_CHANGED can read them
-    // reliably even before ST updates getCurrentChatId() for the new chat
-    chat_metadata['_wo_chatKey'] = chatKey;
-    chat_metadata['_wo_botKey'] = botKey;
-    _isNewEmptyChat = false; // chat now has data — stop suppressing chatStore reads
     console.log('[WildOffscreen] saveNPCsPartial | keys:', Object.keys(npcs), '| chatKey:', chatKey);
     saveSettingsDebounced();
 }
@@ -947,10 +940,6 @@ async function saveNPCs(npcs) {
             lastLocation: npc.lastLocation || null,
         };
     }
-    // Stamp current chat/bot keys into chat_metadata so CHAT_CHANGED can read them reliably
-    chat_metadata['_wo_chatKey'] = chatKey;
-    chat_metadata['_wo_botKey'] = botKey;
-    _isNewEmptyChat = false; // chat now has data — stop suppressing chatStore reads
     saveSettingsDebounced();
 }
 
@@ -2913,81 +2902,88 @@ jQuery(async () => {
     let _lastBotKey = getBotKey();
     let _lastChatKey = getChatKey();
 
-    eventSource.makeFirst(event_types.CHAT_CHANGED, async () => {
+    eventSource.on(event_types.CHAT_CHANGED, () => {
         msgCounter = 0;
         lastChatLength = 0;
         lastBotMessageId = null;
+        // Pre-set to a fingerprint matching index 0 so the initial bot greeting
+        // doesn't slip through dedup and increment msgCounter before user sends anything.
         lastProcessedMsgId = '0|';
+        // Block stale data reads until new chat context is ready
         _chatSwitchPending = true;
 
+        // Snapshot prev keys synchronously
         const prevBotKey  = _lastBotKey;
         const prevChatKey = _lastChatKey;
-        const newBotKey   = getBotKey();
 
-        // New chats have no chatId yet — getChatKey() returns 'default' or stale id.
-        // Detect new chat by checking if the chat array is empty (no messages at all).
-        let ctx;
-        try { ctx = SillyTavern.getContext(); } catch(e) { ctx = null; }
-        const chatIsEmpty = !ctx?.chat?.length;
-        const newChatKey  = chatIsEmpty ? `_new_${Date.now()}` : getChatKey();
-        _isNewEmptyChat = chatIsEmpty;
+        setTimeout(async () => {
+            // Read keys AFTER ST has finished switching context
+            const newBotKey  = getBotKey();
+            const newChatKey = getChatKey();
+            _lastBotKey  = newBotKey;
+            _lastChatKey = newChatKey;
 
-        _lastBotKey  = newBotKey;
-        _lastChatKey = newChatKey;
+            try {
+                const ctx = SillyTavern.getContext();
+                lastChatLength = (ctx.chat || []).length;
+                const lastExisting = (ctx.chat || []).slice(-1)[0];
+                lastProcessedMsgId = (lastChatLength - 1) + '|' + (lastExisting?.mes || '').slice(-60);
+            } catch(e) {}
 
-        try {
-            lastChatLength = (ctx?.chat || []).length;
-            const lastExisting = (ctx?.chat || []).slice(-1)[0];
-            lastProcessedMsgId = (lastChatLength - 1) + '|' + (lastExisting?.mes || '').slice(-60);
-        } catch(e) {}
+            const chatChanged = newChatKey !== prevChatKey || newBotKey !== prevBotKey;
 
-        const chatChanged = newChatKey !== prevChatKey || newBotKey !== prevBotKey;
+            if (chatChanged) {
+                const s = getSettings();
+                const chatStore = s.npcData?.[newBotKey]?.[newChatKey] || {};
+                const hasExistingData = Object.keys(chatStore).some(k => k !== '__internalTime');
 
-        if (chatChanged) {
-            const s = getSettings();
-            // New chat: chatIsEmpty means no messages yet — definitely no events to show
-            // Existing chat: look up its chatStore by key
-            const chatStore = chatIsEmpty ? {} : (s.npcData?.[newBotKey]?.[newChatKey] || {});
-            const hasExistingData = !chatIsEmpty && Object.keys(chatStore).some(k => k !== '__internalTime');
-            const hasAnyNPCs = Object.keys(s.npcData?.[newBotKey]?.__npcs || {}).length > 0;
+                // Check if this bot has any NPCs registered at all
+                const hasAnyNPCs = Object.keys(s.npcData?.[newBotKey]?.__npcs || {}).length > 0;
 
-            if (chatIsEmpty) {
-                // Brand-new chat — nothing to clear yet, just start fresh
-                debugToast('New chat — starting fresh.');
-            } else if (hasExistingData) {
-                const eventCount = Object.values(chatStore).reduce((n, v) => n + (v?.events?.length || 0), 0);
-                debugToast('Returning to existing chat. Events found: ' + eventCount);
-            } else {
-                // Existing chat but no events yet — that's fine, don't clear anything
-                debugToast('Returning to chat — no events yet.');
-            }
+                if (!hasExistingData) {
+                    await clearChatData(newBotKey, newChatKey);
+                    debugToast('New chat — events cleared. Characters retained.');
+                } else {
+                    const eventCount = Object.values(chatStore).reduce((n, v) => n + (v?.events?.length || 0), 0);
+                    debugToast('Returning to existing chat. Events found: ' + eventCount);
+                }
 
-            // Auto-scan lorebook on first open if no NPCs registered for this bot
-            if (!hasAnyNPCs && newBotKey !== 'unknown') {
-                try {
-                    const { npcs: found, bookNames } = await scanCharacterLorebooks();
-                    if (found.length) {
-                        const { npcs, added } = registerNPCs(found);
-                        await saveNPCs(npcs);
-                        toastr.success(`Auto-scanned: ${found.length} NPCs found from ${bookNames.join(', ')}.`);
-                        $('#wo_book_info').html(`<i class="fa-solid fa-book"></i> ${bookNames.join(', ')} — ${found.length} NPCs`);
+                // Auto-scan lorebook on first open if no NPCs registered for this bot
+                if (!hasAnyNPCs && newBotKey !== 'unknown') {
+                    try {
+                        const { npcs: found, bookNames } = await scanCharacterLorebooks();
+                        if (found.length) {
+                            const { npcs, added } = registerNPCs(found);
+                            await saveNPCs(npcs);
+                            toastr.success(`Auto-scanned: ${found.length} NPCs found from ${bookNames.join(', ')}.`);
+                            $('#wo_book_info').html(`<i class="fa-solid fa-book"></i> ${bookNames.join(', ')} — ${found.length} NPCs`);
+                        }
+                    } catch(e) {
+                        console.warn('[WildOffscreen] Auto-scan failed:', e.message);
                     }
-                } catch(e) {
-                    console.warn('[WildOffscreen] Auto-scan failed:', e.message);
                 }
             }
-        }
 
-        // Chat context is ready — allow normal data reads
-        _chatSwitchPending = false;
-        // Note: _isNewEmptyChat stays true until first message is saved,
-        // so getChatStore() keeps returning {} for genuinely new chats
+            // Safety: if getChatKey() still returns 'default' at render time,
+            // clear it so stale events from a previous chat don't show up
+            if (chatChanged) {
+                const s = getSettings();
+                const resolvedChatKey = getChatKey();
+                if (resolvedChatKey === 'default') {
+                    const bk = getBotKey();
+                    if (s.npcData?.[bk]?.['default']) delete s.npcData[bk]['default'];
+                }
+            }
 
-        renderNPCList();
-        updateInjection();
-        updateDateDisplay();
-        if (typeof refreshTimeInputs === 'function') refreshTimeInputs();
-        $('#wo_book_info').html('Bot: ' + getBotKey());
+            // Chat context is now ready — allow normal data reads again
+            _chatSwitchPending = false;
+
+            renderNPCList();
+            updateInjection();
+            updateDateDisplay();
+            if (typeof refreshTimeInputs === 'function') refreshTimeInputs();
+            $('#wo_book_info').html('Bot: ' + getBotKey());
+        }, 300);
     });
 
     updateInjection();
