@@ -35,7 +35,6 @@ const DEFAULTS = {
     outputLanguage: 'en',
     debugMode: false,        // show debug toastr notifications
     scanPosition: 'before_char',
-    infoblockKeywordScan: false, // also scan recent messages by NPC keywords
     keywordScanDepth: 2,      // how many recent bot messages to scan for keywords
 };
 
@@ -1302,7 +1301,29 @@ function hasDatePattern(str) {
     if (/(\d{4})[\/]([Ѐ-ӿa-zA-Z]{3,})[\/](\d{1,2})/.test(str)) return true;
     // date without year: MM/DD (e.g. 11/12)
     if (/(?<![\d])\d{1,2}\/\d{1,2}(?![\d\/])/.test(str)) return true;
+    // "15 марта", "15 March", "March 15", "15th of March" etc.
+    if (/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?[A-Za-zА-ЯЁа-яё]{3,}|\b[A-Za-zА-ЯЁа-яё]{3,}\s+\d{1,2}(?:st|nd|rd|th)?\b/.test(str)) return true;
     return false;
+}
+
+/**
+ * Try to extract a date string from the first ~70 characters of a plain-text message.
+ * Handles: YYYY/MM/DD, DD/MM/YYYY, DD/MM, MM/DD, "15 марта 2008", "March 15th", etc.
+ * Returns the matched date string or null.
+ */
+function extractDateFromPrefix(text) {
+    if (!text) return null;
+    const prefix = text.slice(0, 70);
+    // Full numeric: YYYY/MM/DD or DD/MM/YYYY or DD-MM-YYYY etc.
+    const fullNum = prefix.match(/\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}/);
+    if (fullNum) return fullNum[0];
+    // Short numeric without year: DD/MM or MM/DD
+    const shortNum = prefix.match(/(?<!\d)\d{1,2}[\/\.]\d{1,2}(?!\d)/);
+    if (shortNum) return shortNum[0];
+    // Word month (EN or RU): "15 марта", "15 March", "March 15th", "15th of March"
+    const wordDate = prefix.match(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?[A-Za-zА-ЯЁа-яё]{3,}(?:\s+\d{2,4})?|\b[A-Za-zА-ЯЁа-яё]{3,}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{2,4})?\b/);
+    if (wordDate) return wordDate[0];
+    return null;
 }
 
 // ── Scene info parser ─────────────────────────────────────────────────────
@@ -1335,9 +1356,20 @@ function parseSceneInfo() {
             const lineMatch = stripped.match(/.*(?:\d{1,2}\/\d{1,2}|\u2022).*/);
             if (lineMatch) raw = lineMatch[0].trim();
         }
+        // Last fallback: check first ~70 chars of last bot message for a date prefix
+        // (no infoblock, but date written at the top of the message in any format)
+        if (!raw) {
+            const lastBotMsg = [...chat].reverse().find(m => !m.is_user && !m.is_system && m.mes);
+            if (lastBotMsg) {
+                const plainText = lastBotMsg.mes.replace(/<[^>]+>/g, '').trim();
+                const prefixDate = extractDateFromPrefix(plainText);
+                if (prefixDate) {
+                    console.log('[WildOffscreen] parseSceneInfo → date from message prefix:', prefixDate);
+                    return { raw: prefixDate, date: prefixDate, time: null, season: null, location: null, characters: [] };
+                }
+            }
+        }
         if (!raw) return null;
-
-        // Split on • (bullet U+2022 or literal)
         const parts = raw.split(/\s*[\u2022•]\s*/);
         // parts[0] → "2008/11/12, Поздняя осень"
         // parts[1] → "14:15"
@@ -1538,7 +1570,7 @@ function rollEventParams() {
     return { roll, scale, category, isPositive };
 }
 
-function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo) {
+function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo, needsDateFromLLM) {
     const s = getSettings();
     const npcBlocks = npcList.map((item, i) => {
         const { npc, params } = item;
@@ -1557,25 +1589,9 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         // Detect if this NPC is currently in the active scene
         let inScene = false;
         const s2 = getSettings();
-        const sceneChars = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
-        const searchKeys = Array.isArray(npc.searchKeys) ? npc.searchKeys : [];
-        if (sceneChars.length > 0) {
-            // Infoblock mode: direct name match, + optional keyword scan
-            const npcNameLower = npc.name.toLowerCase();
-            const directMatch = sceneChars.some(c => {
-                if (!c || typeof c !== 'string') return false;
-                const cl = c.toLowerCase().trim();
-                return cl === npcNameLower || cl.includes(npcNameLower);
-            });
-            const kwMatch = s2.infoblockKeywordScan && !directMatch
-                ? npcInRecentMessages(npc, s2.keywordScanDepth || 2)
-                : false;
-            inScene = directMatch || kwMatch;
-            console.log('[WildOffscreen] INFOBLOCK MODE — NPC', npc.name, '→', inScene ? 'IN SCENE' : 'OFFSCREEN',
-                '| direct:', directMatch, 'keyword:', kwMatch);
-        } else {
-            console.log('[WildOffscreen] INFOBLOCK MODE — no sceneChars found, NPC', npc.name, '→ OFFSCREEN (no infoblock parsed)');
-        } // end infoblock mode
+        // Keyword scan mode: check NPC name + lorebook keys against recent bot messages
+        inScene = npcInRecentMessages(npc, s2.keywordScanDepth || 2);
+        console.log('[WildOffscreen] KEYWORD SCAN — NPC', npc.name, '→', inScene ? 'IN SCENE' : 'OFFSCREEN');
 
         const facts = Array.isArray(npc.permanentFacts) ? npc.permanentFacts : [];
         const factsBlock = facts.length
@@ -1648,9 +1664,11 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
         + '- Do NOT start with their name. No dialogue. No poetic language.\n\n'
         + 'Also self-report: a short location (1-5 words) and the actual scale of what you wrote (minor/notable/major).\n\n'
         + 'YOUR RESPONSE MUST USE EXACTLY THIS FORMAT — no deviations:\n'
+        + (needsDateFromLLM ? 'DATE: [current in-story date and time, e.g. "15 марта 2008, 14:30" or "Year of the Flying Tiger, 3rd day of Harvest Moon" — deduce from the story context; write "unknown" if genuinely impossible]\n' : '')
         + npcList.map((item, i) => 'NPC' + (i + 1) + ': [location] | [minor/notable/major] | [sentence]').join('\n') + '\n\n'
         + 'CRITICAL: Use NPC1, NPC2, NPC3... labels. Do NOT use character names as labels. Do NOT add any text before or after.\n'
         + 'Example:\n'
+        + (needsDateFromLLM ? 'DATE: 15 марта 2008, 14:30\n' : '')
         + 'NPC1: городской рынок | minor | Bargained longer than usual over fabric and left without buying anything.\n'
         + 'NPC2: больница | major | Was told the results came back positive and sat unable to move.\n'
         + 'NPC3: Тюменское ГУВД, кабинет Парфёнова | in-scene | No offscreen events. Currently in scene.';
@@ -1683,6 +1701,14 @@ function buildBatchMessages(npcList, mainCharInfo, sharedChatContext, sceneInfo)
  * Returns array of { location, text } or null per NPC.
  */
 function parseBatchResponse(text, count, npcList) {
+    // Extract DATE: line if present (written before NPC lines when date was requested)
+    let llmDate = null;
+    const dateLineMatch = text.match(/^DATE:\s*(.+)/im);
+    if (dateLineMatch) {
+        const d = dateLineMatch[1].trim();
+        if (d && !/^unknown$/i.test(d)) llmDate = d;
+    }
+
     const results = [];
     for (let i = 1; i <= count; i++) {
         // Primary: match NPC1:, NPC2: etc.
@@ -1746,7 +1772,7 @@ function parseBatchResponse(text, count, npcList) {
 
         results.push(sentence.length >= 10 ? { location, text: sentence, inScene: false, reportedScale } : null);
     }
-    return results;
+    return { results, llmDate };
 }
 
 /**
@@ -1775,18 +1801,14 @@ async function generateEventsForAllNPCs(npcs) {
     })();
 
     const sceneInfo = parseSceneInfo();
-    const storyDate = sceneInfo ? [sceneInfo.date, sceneInfo.time].filter(Boolean).join(' ') : null;
-    const sceneCharsForFilter = (sceneInfo && Array.isArray(sceneInfo.characters)) ? sceneInfo.characters : [];
+    const s = getSettings();
 
-    // Skip in-scene NPCs entirely — no need to send them to API
-    const isInSceneCheck = (npc) => {
-        // Match against characters explicitly listed in the infoblock
-        const nl = npc.name.toLowerCase();
-        return sceneCharsForFilter.some(c => {
-            const cl = (c || '').toLowerCase().trim();
-            return cl === nl || cl.includes(nl);
-        });
-    };
+    // If parseSceneInfo couldn't find a date, ask the LLM to extract it from story context
+    const needsDateFromLLM = !sceneInfo || !sceneInfo.date;
+    let storyDate = sceneInfo ? [sceneInfo.date, sceneInfo.time].filter(Boolean).join(' ') : null;
+
+    // Skip in-scene NPCs entirely — keyword scan against recent bot messages
+    const isInSceneCheck = (npc) => npcInRecentMessages(npc, s.keywordScanDepth || 2);
 
     const offscreenKeys = keys.filter(k => !isInSceneCheck(npcs[k]));
     const skippedInScene = keys.filter(k => isInSceneCheck(npcs[k]));
@@ -1799,14 +1821,22 @@ async function generateEventsForAllNPCs(npcs) {
 
     const npcList = offscreenKeys.map(k => ({ npc: npcs[k], key: k, params: rollEventParams() }));
 
-    const messages = buildBatchMessages(npcList, mainCharInfo, sharedChat, sceneInfo);
+    const messages = buildBatchMessages(npcList, mainCharInfo, sharedChat, sceneInfo, needsDateFromLLM);
     const rawText = await callAPI(messages, npcList.length);
     console.log('[WildOffscreen] Batch response:', rawText?.slice(0, 500));
 
     if (!rawText) return;
 
-    const parsed = parseBatchResponse(rawText, npcList.length, npcList);
-    const s = getSettings();
+    const { results: parsed, llmDate } = parseBatchResponse(rawText, npcList.length, npcList);
+
+    // Use LLM-extracted date if we didn't find one from the message prefix/infoblock
+    if (needsDateFromLLM && llmDate) {
+        storyDate = llmDate;
+        console.log('[WildOffscreen] Date from LLM:', llmDate);
+        // Cache it so the date display updates without an extra parse
+        getSettings()._cachedStoryDate = llmDate;
+        saveSettingsDebounced();
+    }
 
     for (let i = 0; i < npcList.length; i++) {
         const { npc, key, params } = npcList[i];
@@ -2085,15 +2115,10 @@ function renderNPCList() {
         return;
     }
 
-    // Determine in-scene status for each NPC (for dot indicator)
-    const _sceneInfo = parseSceneInfo();
-    const _sceneChars = (_sceneInfo && Array.isArray(_sceneInfo.characters)) ? _sceneInfo.characters : [];
+    // Determine in-scene status for each NPC (for dot indicator) via keyword scan
+    const _kd = getSettings().keywordScanDepth || 2;
     for (const key of keys) {
-        const nl = key.toLowerCase();
-        npcs[key]._inScene = _sceneChars.some(c => {
-            const cl = (c || '').toLowerCase().trim();
-            return cl === nl || cl.includes(nl);
-        });
+        npcs[key]._inScene = npcInRecentMessages(npcs[key], _kd);
     }
 
     for (const key of keys) {
@@ -2363,7 +2388,6 @@ function buildUI() {
                         <button id="wo_scan" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Scan Lorebook</button>
                     </div>
                     <div class="wo_actions" style="margin-top:4px;">
-                        <button id="wo_toggle_all_cards" class="menu_button" title="Expand / Collapse all"><i class="fa-solid fa-arrows-up-down"></i> Toggle All</button>
                         <button id="wo_clear_all_events" class="menu_button"><i class="fa-solid fa-eraser"></i> Clear All Events</button>
                         <button id="wo_delete_all_npcs" class="menu_button wo_btn_danger"><i class="fa-solid fa-trash-can"></i> Remove All</button>
                     </div>
@@ -2384,11 +2408,7 @@ function buildUI() {
                         <option value="after_char">after_char</option>
                     </select>
                     <div class="wo_section_label">Scene Detection</div>
-                    <label class="checkbox_label">
-                        <input type="checkbox" id="wo_keyword_scan" ${s.infoblockKeywordScan ? 'checked' : ''} />
-                        <span>Also scan recent messages by keywords</span>
-                    </label>
-                    <label><small>Messages to scan for keywords</small></label>
+                    <label><small>Bot messages to scan for NPC keywords</small></label>
                     <input type="number" id="wo_keyword_depth" class="text_pole" value="${s.keywordScanDepth || 2}" min="1" max="20" />
                     <div class="wo_section_label">Token Context</div>
                     <label><small>Messages history depth</small></label>
@@ -2518,8 +2538,16 @@ jQuery(async () => {
         try {
             const ctx = SillyTavern.getContext();
             const chat = ctx.chat || [];
+            // Try infoblock / prefix date first
             const lastMsg = [...chat].reverse().find(m => m.mes && (hasDatePattern(m.mes) || /<div[^>]+border-left[^>]*?>/.test(m.mes)));
-            const dateStr = lastMsg ? extractDateFromMessage(lastMsg.mes) : null;
+            let dateStr = lastMsg ? extractDateFromMessage(lastMsg.mes) : null;
+            // Fallback: also check first ~70 chars of last bot message
+            if (!dateStr) {
+                const lastBot = [...chat].reverse().find(m => !m.is_user && !m.is_system && m.mes);
+                if (lastBot) dateStr = extractDateFromPrefix(lastBot.mes.replace(/<[^>]+>/g, '').trim());
+            }
+            // Final fallback: cached date from last LLM extraction
+            if (!dateStr) dateStr = getSettings()._cachedStoryDate || null;
             $('#wo_date_display').text(dateStr || '');
         } catch(e) {
             $('#wo_date_display').text('');
@@ -2638,7 +2666,6 @@ jQuery(async () => {
     $('#wo_max_messages').on('input', function() { s.maxMessages = parseInt(this.value) || 30; saveSettingsDebounced(); });
     $('#wo_max_chars').on('input', function() { s.maxCharsPerMsg = parseInt(this.value) || 2000; saveSettingsDebounced(); });
 
-    $('#wo_keyword_scan').on('change', function () { s.infoblockKeywordScan = this.checked; saveSettingsDebounced(); });
     $('#wo_keyword_depth').on('input', function () { s.keywordScanDepth = parseInt(this.value) || 2; saveSettingsDebounced(); });
     $('#wo_trigger_every').on('input', function () { const v = parseInt(this.value); s.triggerEvery = isNaN(v) ? DEFAULTS.triggerEvery : Math.max(0, v); saveSettingsDebounced(); });
     $('#wo_max_events').on('input', function () { s.maxEvents = parseInt(this.value) || DEFAULTS.maxEvents; saveSettingsDebounced(); });
@@ -2730,17 +2757,6 @@ jQuery(async () => {
             return;
         }
         await runGenerationCycle();
-    });
-
-    // Toggle All cards
-    $('#wo_toggle_all_cards').on('click', () => {
-        const cards = $('.wo_npc_events');
-        const anyOpen = cards.filter(':visible').length > 0;
-        if (anyOpen) {
-            cards.slideUp(150);
-        } else {
-            cards.slideDown(150);
-        }
     });
 
     // Manual event add
