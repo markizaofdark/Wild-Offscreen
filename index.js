@@ -36,6 +36,7 @@ const DEFAULTS = {
     debugMode: false,        // show debug toastr notifications
     scanPosition: 'before_char',
     keywordScanDepth: 2,      // how many recent bot messages to scan for keywords
+    pityMajorEvery: 15,       // guarantee a major event after this many events without one (0 = disabled)
 };
 
 const LANGUAGE_INSTRUCTION = {
@@ -45,9 +46,9 @@ const LANGUAGE_INSTRUCTION = {
 };
 
 const SCALE = [
-    { min: 1,  max: 8,  id: 'minor',   label: 'MINOR'   },
-    { min: 9,  max: 18, id: 'notable', label: 'NOTABLE' },
-    { min: 19, max: 20, id: 'major',   label: 'MAJOR'   },
+    { min: 1,  max: 12, id: 'minor',   label: 'MINOR'   },  // 60%
+    { min: 13, max: 19, id: 'notable', label: 'NOTABLE' },  // 35%
+    { min: 20, max: 20, id: 'major',   label: 'MAJOR'   },  // 5%
 ];
 
 // ── Offscreen event pools ──────────────────────────────────
@@ -760,7 +761,7 @@ let isGenerating = false; // guard against re-entrant generation
 let lastProcessedMsgId = null; // deduplicate MESSAGE_RECEIVED + CHARACTER_MESSAGE_RENDERED
 let _chatSwitchPending = false; // true while chat switch is in progress — prevents stale renders
 let _isNewChat = false;        // true for brand-new chats until first save — prevents stale chatStore reads
-let _lastRerollTime = 0;       // timestamp of last reroll — cooldown to prevent multiple pops
+let _eventsSinceLastMajor = 0; // pity counter — resets when any major event occurs
 
 // ── Settings ───────────────────────────────────────────────
 
@@ -1533,8 +1534,18 @@ const SCALE_GUIDANCE = {
 };
 
 function rollEventParams() {
-    const roll = rollD20();
-    const scale = getScale(roll);
+    const s = getSettings();
+    const pityThreshold = s.pityMajorEvery || 0;
+    let roll = rollD20();
+    let scale = getScale(roll);
+
+    // Pity system: if we've gone pityThreshold events without a major, force one
+    if (pityThreshold > 0 && _eventsSinceLastMajor >= pityThreshold) {
+        scale = SCALE.find(s => s.id === 'major');
+        roll = 20;
+        console.log('[WildOffscreen] Pity triggered — forcing MAJOR after', _eventsSinceLastMajor, 'events');
+    }
+
     const category = getCategory();
     const isPositive = roll % 2 === 0;
     return { roll, scale, category, isPositive };
@@ -1858,7 +1869,15 @@ async function generateEventsForAllNPCs(npcs) {
             npc.lastLocation = result.location;
         }
 
-        console.log('[WildOffscreen] Event for', npc.name, '@', result.location, ':', result.text);
+        // Pity counter: track events since last major (use reported scale from model)
+        const actualScale = result.reportedScale || params.scale.id;
+        if (actualScale === 'major') {
+            _eventsSinceLastMajor = 0;
+        } else {
+            _eventsSinceLastMajor++;
+        }
+
+        console.log('[WildOffscreen] Event for', npc.name, '@', result.location, ':', result.text, '| pity counter:', _eventsSinceLastMajor);
     }
 
     // Save only the NPCs that were modified (offscreen ones)
@@ -2043,9 +2062,9 @@ function onGenerationStarted() {
         lastChatLength = currentLength;
 
         if (isReroll) {
-            // Reroll detected — generation will be triggered by CHARACTER_MESSAGE_RENDERED
-            // after the new message arrives. Just force the counter here.
-            msgCounter = s.triggerEvery;
+            // Reroll — ignore entirely, don't touch msgCounter
+            console.log('[WildOffscreen] onGenerationStarted: reroll detected — skipping');
+            return;
         }
     } catch(e) {
         console.warn('[WildOffscreen] onGenerationStarted error:', e.message);
@@ -2402,6 +2421,8 @@ function buildUI() {
                     <input type="number" id="wo_trigger_every" class="text_pole" value="${s.triggerEvery}" min="1" />
                     <label><small>Max stored events per NPC</small></label>
                     <input type="number" id="wo_max_events" class="text_pole" value="${s.maxEvents}" />
+                    <label><small>Guarantee MAJOR event after N events without one (0 = off)</small></label>
+                    <input type="number" id="wo_pity_major" class="text_pole" value="${s.pityMajorEvery ?? 15}" min="0" />
                 </div>
             </div>
 
@@ -2748,6 +2769,7 @@ jQuery(async () => {
 
     $('#wo_keyword_depth').on('input', function () { s.keywordScanDepth = parseInt(this.value) || 2; saveSettingsDebounced(); });
     $('#wo_trigger_every').on('input', function () { const v = parseInt(this.value); s.triggerEvery = isNaN(v) ? DEFAULTS.triggerEvery : Math.max(0, v); saveSettingsDebounced(); });
+    $('#wo_pity_major').on('input', function () { const v = parseInt(this.value); s.pityMajorEvery = isNaN(v) ? 15 : Math.max(0, v); saveSettingsDebounced(); });
     $('#wo_max_events').on('input', function () { s.maxEvents = parseInt(this.value) || DEFAULTS.maxEvents; saveSettingsDebounced(); });
     $('#wo_inject_max').on('input', function () { s.injectMaxMessages = parseInt(this.value) || 0; saveSettingsDebounced(); });
 
@@ -2973,43 +2995,9 @@ jQuery(async () => {
             const isReroll = lengthUnchanged && contentChanged && prevBotMessageId !== null;
 
             if (isReroll) {
-                // Cooldown: ST can fire CHARACTER_MESSAGE_RENDERED multiple times
-                // for a single reroll (post-processing, macro expansion, etc.)
-                // These duplicates arrive within milliseconds. Genuine user rerolls
-                // take at least 1-2 seconds. 1s cooldown catches duplicates but
-                // allows rapid intentional rerolls.
-                const now = Date.now();
-                if (now - _lastRerollTime < 1000) {
-                    console.log('[WildOffscreen] Reroll detected but within cooldown — skipping');
-                    return;
-                }
-                _lastRerollTime = now;
-
-                console.log('[WildOffscreen] Reroll confirmed — content changed, removing last events');
-                debugToast('Reroll detected — removing last events');
-                const npcs = getNPCs();
-                let removed = 0;
-                for (const key of Object.keys(npcs)) {
-                    if (!npcs[key].enabled || !npcs[key].events.length) continue;
-                    const lastEvent = npcs[key].events[npcs[key].events.length - 1];
-                    npcs[key].events.pop();
-                    // Also remove auto-promoted fact that matches this event (if any)
-                    if (lastEvent && npcs[key].permanentFacts) {
-                        const factIdx = npcs[key].permanentFacts.findIndex(
-                            f => f.auto && f.text === lastEvent.text
-                        );
-                        if (factIdx !== -1) npcs[key].permanentFacts.splice(factIdx, 1);
-                    }
-                    removed++;
-                }
-                if (removed > 0) {
-                    await saveNPCs(npcs);
-                    renderNPCList();
-                    updateInjection();
-                }
-                // Immediately generate new events for this reroll — don't go through msgCounter
-                msgCounter = 0;
-                runGenerationCycle();
+                // Reroll = same slot, different content. We ignore it entirely:
+                // no event pop, no generation, counter unchanged.
+                console.log('[WildOffscreen] Reroll detected — ignoring, events and counter untouched.');
                 return;
             } else if (lengthUnchanged && !contentChanged && prevBotMessageId !== null) {
                 console.log('[WildOffscreen] Same message seen again — skipping');
